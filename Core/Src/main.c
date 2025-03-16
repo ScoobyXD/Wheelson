@@ -12,13 +12,20 @@ int main(void)
 
   HAL_Init();
   SystemClock_Config();
+  PortA_Config();
+  TurretMotors_Config();
   while (1)
   {
+	  HAL_Delay(1000);
 	  GPIOA->BSRR |= (1 << 9U);
+	  TIM1->CCR1 = 250;
+	  HAL_Delay(1000);
+	  TIM1->CCR1 = 0;
 	  HAL_Delay(1000);
 	  GPIOA->BSRR &= ~(1 << 9U);
+	  TIM1->CCR1 = 250;
 	  HAL_Delay(1000);
-
+	  TIM1->CCR1 = 0;
   }
   /* USER CODE END 3 */
 }
@@ -29,7 +36,7 @@ void PortA_Config(void){
 void TurretMotors_Config(void){
 	//Base motor direction (push/pull)
 	GPIOA->MODER &= ~GPIO_MODER_MODE9_1;
-	GPIOA->MODER |= GPIO_MODER_MODE9_1; //set PA9 to output
+	GPIOA->MODER |= GPIO_MODER_MODE9_0; //set PA9 to output (01)
 
 	GPIOA->OTYPER &= ~GPIO_OTYPER_OT9;
 	GPIOA->OTYPER |= GPIO_OTYPER_OT9; //set output type to push/pull, which is the default one
@@ -39,14 +46,21 @@ void TurretMotors_Config(void){
 	RCC->APB2ENR |= RCC_APB2ENR_TIM1EN; //enable Tim1
 
 	GPIOA->MODER &= ~GPIO_MODER_MODE8_1;
-	GPIOA->MODER |= GPIO_MODER_MODE8_1; //set PA8 to output
+	GPIOA->MODER |= GPIO_MODER_MODE8_1; //set PA8 to alternative function
 
-	GPIOA->AFR[1] &= ~GPIO_AFRH_AFSEL8_Pos;
-	GPIOA->AFR[1] |= GPIO_AFRH_AFSEL8_Pos; //set output type to the alternative, PWM, for pin PA_8, channel 1.
+	GPIOA->AFR[1] &= ~GPIO_AFRH_AFSEL8_0;
+	GPIOA->AFR[1] |= GPIO_AFRH_AFSEL8_0; //set PA8 to AF1 (alternate function 1), which is TIM1_CH1
 
 	TIM1->PSC = 79;
 	TIM1->ARR = 999;
-	//TIM1->CCR1 = 500;
+	TIM1->CCR1 = 500;
+
+	TIM1->CCMR1 |= (6 << TIM_CCMR1_OC1M_Pos);  // Set PWM mode 1 on CH1
+	TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Enable preload register
+
+	TIM1->CCER |= TIM_CCER_CC1E;  // Enable CH1 output
+	TIM1->BDTR |= TIM_BDTR_MOE;   // Main output enable (For advanced timers like TIM1)
+	TIM1->CR1 |= TIM_CR1_CEN;     // Enable TIM1
 
 
 	GPIOA->MODER &= ~GPIO_MODER_MODE8_1;
