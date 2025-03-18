@@ -3,7 +3,6 @@
 #include "stm32l4xx_hal_pwr_ex.h"
 
 void SystemClock_Config(void);
-void PortA_Config(void);
 void TurretMotors_Config(void);
 
 
@@ -12,39 +11,38 @@ int main(void)
 
   HAL_Init();
   SystemClock_Config();
-  PortA_Config();
   TurretMotors_Config();
   while (1)
   {
-	  HAL_Delay(1000);
+	  //HAL_Delay(1000);
 	  GPIOA->BSRR |= (1 << 9U);
 	  TIM1->CCR1 = 250;
+	  /*
 	  HAL_Delay(1000);
 	  TIM1->CCR1 = 0;
 	  HAL_Delay(1000);
 	  GPIOA->BSRR &= ~(1 << 9U);
 	  TIM1->CCR1 = 250;
 	  HAL_Delay(1000);
-	  TIM1->CCR1 = 0;
+	  TIM1->CCR1 = 0;*/
   }
   /* USER CODE END 3 */
 }
-void PortA_Config(void){
+void TurretMotors_Config(void){
 	RCC->AHB2ENR &= ~RCC_AHB2ENR_GPIOAEN;
 	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOAEN; //activate clock for port A
-}
-void TurretMotors_Config(void){
+
+	RCC->APB2ENR &= ~RCC_APB2ENR_TIM1EN;
+	RCC->APB2ENR |= RCC_APB2ENR_TIM1EN; //enable Tim1
+
 	//Base motor direction (push/pull)
-	GPIOA->MODER &= ~GPIO_MODER_MODE9_1;
+	GPIOA->MODER &= ~GPIO_MODER_MODE9_0;
 	GPIOA->MODER |= GPIO_MODER_MODE9_0; //set PA9 to output (01)
 
 	GPIOA->OTYPER &= ~GPIO_OTYPER_OT9;
 	GPIOA->OTYPER |= GPIO_OTYPER_OT9; //set output type to push/pull, which is the default one
 
 	//Base motor power (PWM)
-	RCC->APB2ENR &= ~RCC_APB2ENR_TIM1EN;
-	RCC->APB2ENR |= RCC_APB2ENR_TIM1EN; //enable Tim1
-
 	GPIOA->MODER &= ~GPIO_MODER_MODE8_1;
 	GPIOA->MODER |= GPIO_MODER_MODE8_1; //set PA8 to alternative function
 
@@ -65,12 +63,6 @@ void TurretMotors_Config(void){
 
 	GPIOA->MODER &= ~GPIO_MODER_MODE8_1;
 	GPIOA->MODER |= GPIO_MODER_MODE8_1; //set PA8 to output
-
-
-
-
-
-	//GPIOA->AFR[2]
 }
 
 void SystemClock_Config(void)
