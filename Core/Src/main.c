@@ -29,11 +29,18 @@ int main(void)
   /* USER CODE END 3 */
 }
 void TurretMotors_Config(void){
+	__IO uint32_t tmpreg;
+
 	RCC->AHB2ENR &= ~RCC_AHB2ENR_GPIOAEN;
 	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOAEN; //activate clock for port A
+	tmpreg = RCC->AHB2ENR;
+	UNUSED(tmpreg); //standard practice to delay after starting timer to give it time to start
+
 
 	RCC->APB2ENR &= ~RCC_APB2ENR_TIM1EN;
 	RCC->APB2ENR |= RCC_APB2ENR_TIM1EN; //enable Tim1
+	tmpreg = RCC->APB2ENR;
+	UNUSED(tmpreg); //standard practice to delay after starting timer to give it time to start
 
 	//Base motor direction (push/pull)
 	GPIOA->MODER &= ~GPIO_MODER_MODE9_0;
