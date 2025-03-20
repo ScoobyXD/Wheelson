@@ -42,6 +42,9 @@ void TurretMotors_Config(void){
 	tmpreg = RCC->APB2ENR;
 	UNUSED(tmpreg); //standard practice to delay after starting timer to give it time to start
 
+	RCC->CFGR &= ~RCC_CFGR_PPRE2;
+	RCC->CFGR |= (0x06UL << RCC_CFGR_PPRE2_Pos); //ensure APB2 is running at 80 MHz, APB2 Prescale = 1 (TIM1 = 80MHz) HCLK divided by 8
+
 	//Base motor direction (push/pull)
 	GPIOA->MODER &= ~GPIO_MODER_MODE9_0;
 	GPIOA->MODER |= GPIO_MODER_MODE9_0; //set PA9 to output (01)
@@ -56,9 +59,12 @@ void TurretMotors_Config(void){
 	GPIOA->AFR[1] &= ~GPIO_AFRH_AFSEL8_0;
 	GPIOA->AFR[1] |= GPIO_AFRH_AFSEL8_0; //set PA8 to AF1 (alternate function 1), which is TIM1_CH1
 
-	TIM1->PSC = 79;
-	TIM1->ARR = 999;
-	TIM1->CCR1 = 500;
+	GPIO->OSPEEDR |= GPIO_OSPEEDR_OSPEED8_Msk; //11 very high speed
+	GPIOA->PUPDR |= GPIO_PUPDR_PUPD8_Msk; //11 neither pull up nor pull down
+
+	TIM1->PSC = 0; //prescalar, 0 so we keep clock at 80mhz
+	TIM1->ARR = 1;
+	TIM1->CCR1 = 1;
 
 	TIM1->CCMR1 |= (6 << TIM_CCMR1_OC1M_Pos);  // Set PWM mode 1 on CH1
 	TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Enable preload register
@@ -68,8 +74,6 @@ void TurretMotors_Config(void){
 	TIM1->CR1 |= TIM_CR1_CEN;     // Enable TIM1
 
 
-	GPIOA->MODER &= ~GPIO_MODER_MODE8_1;
-	GPIOA->MODER |= GPIO_MODER_MODE8_1; //set PA8 to output
 }
 
 void SystemClock_Config(void)
