@@ -12,10 +12,13 @@ int main(void)
   HAL_Init();
   SystemClock_Config();
   TurretMotors_Config();
+
+
+
   while (1)
   {
 	  //HAL_Delay(1000);
-	  GPIOA->BSRR |= (1 << 9U);
+	  GPIOA->BSRR = GPIO_BSRR_BS9;
 	  TIM1->CCR1 = 250;
 	  /*
 	  HAL_Delay(1000);
@@ -36,21 +39,21 @@ void TurretMotors_Config(void){
 	tmpreg = RCC->AHB2ENR;
 	UNUSED(tmpreg); //standard practice to delay after starting timer to give it time to start
 
-
 	RCC->APB2ENR &= ~RCC_APB2ENR_TIM1EN;
 	RCC->APB2ENR |= RCC_APB2ENR_TIM1EN; //enable Tim1
 	tmpreg = RCC->APB2ENR;
 	UNUSED(tmpreg); //standard practice to delay after starting timer to give it time to start
 
 	RCC->CFGR &= ~RCC_CFGR_PPRE2;
-	RCC->CFGR |= (0x06UL << RCC_CFGR_PPRE2_Pos); //ensure APB2 is running at 80 MHz, APB2 Prescale = 1 (TIM1 = 80MHz) HCLK divided by 8
+	RCC->CFGR |= (0x000UL << RCC_CFGR_PPRE2_Pos); // make sure PCLK2 is not divided, so HCLK not divided 0x00
 
 	//Base motor direction (push/pull)
-	GPIOA->MODER &= ~GPIO_MODER_MODE9_0;
+	GPIOA->MODER &= ~GPIO_MODER_MODE9_Msk; //remember each pin is 2 bits wide, so when BIC must use 0x03
 	GPIOA->MODER |= GPIO_MODER_MODE9_0; //set PA9 to output (01)
 
-	GPIOA->OTYPER &= ~GPIO_OTYPER_OT9;
-	GPIOA->OTYPER |= GPIO_OTYPER_OT9; //set output type to push/pull, which is the default one
+	GPIOA->OTYPER &= ~GPIO_OTYPER_OT9; //set output type to 0x00, push/pull, which is the default one
+
+	GPIOA->PUPDR &= ~GPIO_PUPDR_PUPD9_Msk; //11 neither pull up nor pull down
 
 	//Base motor power (PWM)
 	GPIOA->MODER &= ~GPIO_MODER_MODE8_1;
@@ -59,14 +62,14 @@ void TurretMotors_Config(void){
 	GPIOA->AFR[1] &= ~GPIO_AFRH_AFSEL8_0;
 	GPIOA->AFR[1] |= GPIO_AFRH_AFSEL8_0; //set PA8 to AF1 (alternate function 1), which is TIM1_CH1
 
-	GPIO->OSPEEDR |= GPIO_OSPEEDR_OSPEED8_Msk; //11 very high speed
+	GPIOA->OSPEEDR |= GPIO_OSPEEDR_OSPEED8_Msk; //11 very high speed
 	GPIOA->PUPDR |= GPIO_PUPDR_PUPD8_Msk; //11 neither pull up nor pull down
 
-	TIM1->PSC = 0; //prescalar, 0 so we keep clock at 80mhz
-	TIM1->ARR = 1;
-	TIM1->CCR1 = 1;
+	TIM1->PSC = 0; //so we keep clock at 80mhz and not divide it by anything. (x) x (0+1)
+	TIM1->ARR = 32767; //half of 16 bit width 65535
+	TIM1->CCR1 = 16384; //half of ARR
 
-	TIM1->CCMR1 |= (6 << TIM_CCMR1_OC1M_Pos);  // Set PWM mode 1 on CH1
+	TIM1->CCMR1 |= (0x06UL << TIM_CCMR1_OC1M_Pos);  // Set PWM mode 1 on CH1
 	TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Enable preload register
 
 	TIM1->CCER |= TIM_CCER_CC1E;  // Enable CH1 output
