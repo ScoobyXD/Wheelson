@@ -4,6 +4,7 @@
 
 void SystemClock_Config(void);
 void TurretMotors_Config(void);
+void init_pwm_on_d7(void);
 
 
 int main(void)
@@ -12,13 +13,14 @@ int main(void)
   HAL_Init();
   SystemClock_Config();
   TurretMotors_Config();
+  init_pwm_on_d7();
 
 
 
   while (1)
   {
 	  //HAL_Delay(1000);
-	  GPIOA->BSRR = GPIO_BSRR_BS9;
+	  GPIOA->BSRR = GPIO_BSRR_BS9; //this is a write only, so just set it = If you do |= that means you LDR that register to read, which resets it to 0.
 	  TIM1->CCR1 = 250;
 	  /*
 	  HAL_Delay(1000);
@@ -45,39 +47,59 @@ void TurretMotors_Config(void){
 	UNUSED(tmpreg); //standard practice to delay after starting timer to give it time to start
 
 	RCC->CFGR &= ~RCC_CFGR_PPRE2;
-	RCC->CFGR |= (0x000UL << RCC_CFGR_PPRE2_Pos); // make sure PCLK2 is not divided, so HCLK not divided 0x00
+	RCC->CFGR |= (0 << RCC_CFGR_PPRE2_Pos); // make sure PCLK2 is not divided, so HCLK not divided 0x00
 
 	//Base motor direction (push/pull)
 	GPIOA->MODER &= ~GPIO_MODER_MODE9_Msk; //remember each pin is 2 bits wide, so when BIC must use 0x03
 	GPIOA->MODER |= GPIO_MODER_MODE9_0; //set PA9 to output (01)
 
-	GPIOA->OTYPER &= ~GPIO_OTYPER_OT9; //set output type to 0x00, push/pull, which is the default one
-
-	GPIOA->PUPDR &= ~GPIO_PUPDR_PUPD9_Msk; //11 neither pull up nor pull down
+	GPIOA->OTYPER &= ~GPIO_OTYPER_OT9; //Output push-pull (reset state) (default value)
+	GPIOA->PUPDR &= ~GPIO_PUPDR_PUPD9_Msk; //set to 0x00, neither pull up nor pull down
 
 	//Base motor power (PWM)
-	GPIOA->MODER &= ~GPIO_MODER_MODE8_1;
+	GPIOA->MODER &= ~GPIO_MODER_MODE8_Msk;
 	GPIOA->MODER |= GPIO_MODER_MODE8_1; //set PA8 to alternative function
 
-	GPIOA->AFR[1] &= ~GPIO_AFRH_AFSEL8_0;
+	GPIOA->AFR[1] &= ~GPIO_AFRH_AFSEL8_Msk;
 	GPIOA->AFR[1] |= GPIO_AFRH_AFSEL8_0; //set PA8 to AF1 (alternate function 1), which is TIM1_CH1
 
 	GPIOA->OSPEEDR |= GPIO_OSPEEDR_OSPEED8_Msk; //11 very high speed
-	GPIOA->PUPDR |= GPIO_PUPDR_PUPD8_Msk; //11 neither pull up nor pull down
+	GPIOA->OTYPER &= ~GPIO_OTYPER_OT8_Msk; //0x00 for output push/pull
+	GPIOA->PUPDR &= ~GPIO_PUPDR_PUPD8_Msk; //0x00 neither pull up nor pull down
+
+	TIM1->CCMR1 &= ~TIM_CCMR1_OC1M_Msk;
+	TIM1->CCMR1 |= (6 << TIM_CCMR1_OC1M_Pos);  // Set PWM mode 1 on CH1 /////////////////////I ENDED HERE
+	TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Enable preload register
 
 	TIM1->PSC = 0; //so we keep clock at 80mhz and not divide it by anything. (x) x (0+1)
 	TIM1->ARR = 32767; //half of 16 bit width 65535
 	TIM1->CCR1 = 16384; //half of ARR
 
-	TIM1->CCMR1 |= (0x06UL << TIM_CCMR1_OC1M_Pos);  // Set PWM mode 1 on CH1
-	TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Enable preload register
+
 
 	TIM1->CCER |= TIM_CCER_CC1E;  // Enable CH1 output
 	TIM1->BDTR |= TIM_BDTR_MOE;   // Main output enable (For advanced timers like TIM1)
-	TIM1->CR1 |= TIM_CR1_CEN;     // Enable TIM1
+	TIM1->CR1 |= TIM_CR1_CEN;     // Enable TIM1 //this really outputs it
 
 
 }
+void init_pwm_on_d7(void) {
+
+    // 3. Configure TIM1 for PWM Mode 1 on CH1
+    TIM1->PSC = 79;         // 80 MHz / (79 + 1) = 1 MHz timer clock
+    TIM1->ARR = 1000 - 1;   // Auto-reload = 999 → 1 kHz PWM
+    TIM1->CCR1 = 500;       // 50% duty cycle
+
+    TIM1->CCMR1 &= ~TIM_CCMR1_OC1M_Msk;
+    TIM1->CCMR1 |= (6 << TIM_CCMR1_OC1M_Pos);  // PWM mode 1 (OC1M = 110)
+    TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Preload enable
+
+    // 4. Enable output on Channel 1 and start the timer
+    TIM1->CCER |= TIM_CCER_CC1E;         // Enable output on CH1
+    TIM1->BDTR |= TIM_BDTR_MOE;          // Main output enable (advanced timer)
+    TIM1->CR1  |= TIM_CR1_CEN;           // Enable counter
+}
+
 
 void SystemClock_Config(void)
 {
