@@ -13,15 +13,17 @@ int main(void)
   HAL_Init();
   SystemClock_Config();
   TurretMotors_Config();
-  init_pwm_on_d7();
-
-
 
   while (1)
   {
 	  //HAL_Delay(1000);
 	  GPIOA->BSRR = GPIO_BSRR_BS9; //this is a write only, so just set it = If you do |= that means you LDR that register to read, which resets it to 0.
-	  TIM1->CCR1 = 250;
+	  HAL_Delay(1);
+	  GPIOA->BSRR = GPIO_BSRR_BS9;
+	  HAL_Delay(1);
+
+
+	  //TIM1->CCR1 = 250;
 	  /*
 	  HAL_Delay(1000);
 	  TIM1->CCR1 = 0;
@@ -71,9 +73,17 @@ void TurretMotors_Config(void){
 	TIM1->CCMR1 |= (6 << TIM_CCMR1_OC1M_Pos);  // Set PWM mode 1 on CH1 /////////////////////I ENDED HERE
 	TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Enable preload register
 
+
+
+	/*
+	TIM1->PSC = 79;         // 80 MHz / (79 + 1) = 1 MHz timer clock
+	TIM1->ARR = 1000 - 1;   // Auto-reload = 999 → 1 kHz PWM
+	TIM1->CCR1 = 500;       // 50% duty cycle
+	*/
+
 	TIM1->PSC = 0; //so we keep clock at 80mhz and not divide it by anything. (x) x (0+1)
 	TIM1->ARR = 32767; //half of 16 bit width 65535
-	TIM1->CCR1 = 16384; //half of ARR
+	TIM1->CCR1 = 16384; //half of ARR*/
 
 
 
@@ -83,23 +93,6 @@ void TurretMotors_Config(void){
 
 
 }
-void init_pwm_on_d7(void) {
-
-    // 3. Configure TIM1 for PWM Mode 1 on CH1
-    TIM1->PSC = 79;         // 80 MHz / (79 + 1) = 1 MHz timer clock
-    TIM1->ARR = 1000 - 1;   // Auto-reload = 999 → 1 kHz PWM
-    TIM1->CCR1 = 500;       // 50% duty cycle
-
-    TIM1->CCMR1 &= ~TIM_CCMR1_OC1M_Msk;
-    TIM1->CCMR1 |= (6 << TIM_CCMR1_OC1M_Pos);  // PWM mode 1 (OC1M = 110)
-    TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Preload enable
-
-    // 4. Enable output on Channel 1 and start the timer
-    TIM1->CCER |= TIM_CCER_CC1E;         // Enable output on CH1
-    TIM1->BDTR |= TIM_BDTR_MOE;          // Main output enable (advanced timer)
-    TIM1->CR1  |= TIM_CR1_CEN;           // Enable counter
-}
-
 
 void SystemClock_Config(void)
 {
