@@ -5,13 +5,15 @@
 
 void SystemClock_Config(void);
 void TurretMotors_Config(void);
+void USART1_Config(void);
 void TurretRight(void);
 void TurretLeft(void);
 void TurretDoNothing(void);
-
+__IO uint32_t tmpreg;
 
 int main(void)
 {
+
   HAL_Init();
   SystemClock_Config();
   TurretMotors_Config();
@@ -20,14 +22,6 @@ int main(void)
 
   while (1) //as of now doing roughly 400 pulses every second
   {
-
-	  uint8_t rx;
-
-	  HAL_UART_Receive(&huart1, &rx, 1, HAL_MAX_DELAY);
-	  HAL_UART_Transmit(&huart1, &rx, 1, HAL_MAX_DELAY);
-
-	  printf("Give command: \n");
-	  scanf("%d", &UserCommand);
 	  //poll for user inputs
 	  //logic to check commands
 	  if(UserCommand == 'A'){
@@ -39,6 +33,11 @@ int main(void)
 	  else {
 		  TurretDoNothing();
 	  }
+
+	  TurretLeft();
+	  TurretRight();
+	  TurretLeft();
+	  TurretRight();
   }
 }
 void TurretRight(void){
@@ -58,7 +57,7 @@ void TurretDoNothing(void){
 }
 
 void TurretMotors_Config(void){
-	__IO uint32_t tmpreg;
+
 
 	RCC->AHB2ENR &= ~RCC_AHB2ENR_GPIOAEN;
 	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOAEN; //activate clock for port A
@@ -102,24 +101,44 @@ void TurretMotors_Config(void){
 	TIM1->BDTR |= TIM_BDTR_MOE;   // Main output enable (For advanced timers like TIM1/TIM8)
 }
 
-UART_HandleTypeDef huart1;
+void USART1_Config(void) {
+	//Port A already opened in TurretMotors_Config
+	RCC->APB2ENR &= ~RCC_APB2ENR_USART1EN;
+	RCC->APB2ENR |= RCC_APB2ENR_USART1EN;	//enable usart1 clock
+	tmpreg = RCC->APB2ENR;
+	UNUSED(tmpreg);
 
-void MX_USART1_UART_Init(void)
-{
-    huart1.Instance = USART1;
-    huart1.Init.BaudRate = 9600;
-    huart1.Init.WordLength = UART_WORDLENGTH_8B;
-    huart1.Init.StopBits = UART_STOPBITS_1;
-    huart1.Init.Parity = UART_PARITY_NONE;
-    huart1.Init.Mode = UART_MODE_TX_RX;
-    huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-    huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+	GPIOA->
+	USART1->BRR =
+	USART1->CR1 =
 
-    if (HAL_UART_Init(&huart1) != HAL_OK)
-    {
-        Error_Handler();
+
+    // 2. Set PA9 (TX) as alternate function push-pull
+    GPIOA->CRH &= ~(0xF << 4);         // Clear CNF9 + MODE9
+    GPIOA->CRH |=  (0xB << 4);         // MODE9 = 0b11 (50 MHz), CNF9 = 0b10 (AF PP)
+
+    // 3. Set PA10 (RX) as input floating
+    GPIOA->CRH &= ~(0xF << 8);         // Clear CNF10 + MODE10
+    GPIOA->CRH |=  (0x4 << 8);         // CNF10 = 0b01 (floating input), MODE10 = 0b00
+
+    // 4. Set baud rate
+    USART1->BRR = 72000000 / 9600;     // Assuming 72 MHz PCLK2
+
+    // 5. Enable USART1: TE (transmit), RE (receive), UE (USART enable)
+    USART1->CR1 |= USART_CR1_TE | USART_CR1_RE | USART_CR1_UE;
+}
+
+void uart1_send_char(char c) {
+    while (!(USART1->SR & USART_SR_TXE));  // Wait until TX buffer is empty
+    USART1->DR = c;
+}
+
+void uart1_send_str(const char *s) {
+    while (*s) {
+        uart1_send_char(*s++);
     }
 }
+
 
 void SystemClock_Config(void)
 {
