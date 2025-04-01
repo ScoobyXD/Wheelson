@@ -4,7 +4,8 @@
 
 void SystemClock_Config(void);
 void TurretMotors_Config(void);
-void init_pwm_on_d7(void);
+void TurretRight(void);
+void TurretLeft(void);
 
 
 int main(void)
@@ -16,24 +17,34 @@ int main(void)
 
   while (1)
   {
-	  //HAL_Delay(1000);
-	  GPIOA->BSRR = GPIO_BSRR_BS9; //this is a write only, so just set it = If you do |= that means you LDR that register to read, which resets it to 0.
-	  HAL_Delay(1);
-	  GPIOA->BSRR = GPIO_BSRR_BS9;
-	  HAL_Delay(1);
 
 
-	  //TIM1->CCR1 = 250;
-	  /*
-	  HAL_Delay(1000);
-	  TIM1->CCR1 = 0;
-	  HAL_Delay(1000);
-	  GPIOA->BSRR &= ~(1 << 9U);
-	  TIM1->CCR1 = 250;
-	  HAL_Delay(1000);
-	  TIM1->CCR1 = 0;*/
+
+ 	  //GPIOA->BSRR = GPIO_BSRR_BS9; //Turn right. This is a write only, so just set it = If you do |= that means you LDR that register to read, which resets it to 0.
+
+ 	  //GPIOA->BSRR = 0;//does nothing
+
+ 	  //GPIOA->BSRR = GPIO_BSRR_BS9;
+
+	  //as of now doing roughly 400 pulses every second
+ 	  TIM1->CCR1 = 4096; //remember, CCR1 values measure strength of PUL, not some register config
+ 	  HAL_Delay(1000);
+ 	  //TIM1->CCR1 = 0; //stops moving
+ 	  HAL_Delay(1000);
+
+ 	  TIM1->CR1 |= TIM_CR1_CEN;     //Start TIM1 timer counter (will start turning left by default)this is what starts it.
+
+ 	 GPIOA->BSRR = GPIO_BSRR_BS9;
+ 	 GPIOA->BSRR = GPIO_BSRR_BR9;
+
   }
-  /* USER CODE END 3 */
+}
+void TurretRight(void){
+	GPIOA->BSRR = GPIO_BSRR_BS9;
+}
+
+void TurretLeft(void){
+	GPIOA->BSRR = GPIO_BSRR_BR9;
 }
 void TurretMotors_Config(void){
 	__IO uint32_t tmpreg;
@@ -51,14 +62,14 @@ void TurretMotors_Config(void){
 	RCC->CFGR &= ~RCC_CFGR_PPRE2;
 	RCC->CFGR |= (0 << RCC_CFGR_PPRE2_Pos); // make sure PCLK2 is not divided, so HCLK not divided 0x00
 
-	//Base motor direction (push/pull)
+	//Base motor direction (push/pull) GPIO Pin 9, STM32 pin D8
 	GPIOA->MODER &= ~GPIO_MODER_MODE9_Msk; //remember each pin is 2 bits wide, so when BIC must use 0x03
 	GPIOA->MODER |= GPIO_MODER_MODE9_0; //set PA9 to output (01)
 
 	GPIOA->OTYPER &= ~GPIO_OTYPER_OT9; //Output push-pull (reset state) (default value)
 	GPIOA->PUPDR &= ~GPIO_PUPDR_PUPD9_Msk; //set to 0x00, neither pull up nor pull down
 
-	//Base motor power (PWM)
+	//Base motor power (PWM) GPIO Pin 8, STM32 pin D7
 	GPIOA->MODER &= ~GPIO_MODER_MODE8_Msk;
 	GPIOA->MODER |= GPIO_MODER_MODE8_1; //set PA8 to alternative function
 
@@ -70,28 +81,14 @@ void TurretMotors_Config(void){
 	GPIOA->PUPDR &= ~GPIO_PUPDR_PUPD8_Msk; //0x00 neither pull up nor pull down
 
 	TIM1->CCMR1 &= ~TIM_CCMR1_OC1M_Msk;
-	TIM1->CCMR1 |= (6 << TIM_CCMR1_OC1M_Pos);  // Set PWM mode 1 on CH1 /////////////////////I ENDED HERE
+	TIM1->CCMR1 |= (6 << TIM_CCMR1_OC1M_Pos);  // Set PWM mode 1 on CH1
 	TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Enable preload register
 
-
-
-	/*
-	TIM1->PSC = 79;         // 80 MHz / (79 + 1) = 1 MHz timer clock
-	TIM1->ARR = 1000 - 1;   // Auto-reload = 999 → 1 kHz PWM
-	TIM1->CCR1 = 500;       // 50% duty cycle
-	*/
-
 	TIM1->PSC = 0; //so we keep clock at 80mhz and not divide it by anything. (x) x (0+1)
-	TIM1->ARR = 32767; //half of 16 bit width 65535
-	TIM1->CCR1 = 16384; //half of ARR*/
+	TIM1->ARR = 8192; //Max value is 16 bit width 65535
 
-
-
-	TIM1->CCER |= TIM_CCER_CC1E;  // Enable CH1 output
-	TIM1->BDTR |= TIM_BDTR_MOE;   // Main output enable (For advanced timers like TIM1)
-	TIM1->CR1 |= TIM_CR1_CEN;     // Enable TIM1 //this really outputs it
-
-
+	TIM1->CCER |= TIM_CCER_CC1E;  // Enable CH1 output (Capture mode enable)
+	TIM1->BDTR |= TIM_BDTR_MOE;   // Main output enable (For advanced timers like TIM1/TIM8)
 }
 
 void SystemClock_Config(void)
