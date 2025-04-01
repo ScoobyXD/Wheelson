@@ -5,7 +5,7 @@
 
 void SystemClock_Config(void);
 void TurretMotors_Config(void);
-void USART1_Config(void);
+void USART2_Config(void);
 void TurretRight(void);
 void TurretLeft(void);
 void TurretDoNothing(void);
@@ -101,42 +101,34 @@ void TurretMotors_Config(void){
 	TIM1->BDTR |= TIM_BDTR_MOE;   // Main output enable (For advanced timers like TIM1/TIM8)
 }
 
-void USART1_Config(void) {
+void USART2_Config(void) {
 	//Port A already opened in TurretMotors_Config
-	RCC->APB2ENR &= ~RCC_APB2ENR_USART1EN;
-	RCC->APB2ENR |= RCC_APB2ENR_USART1EN;	//enable usart1 clock
-	tmpreg = RCC->APB2ENR;
+	RCC->APB1ENR1 &= ~RCC_APB1ENR1_USART2EN_Msk;
+	RCC->APB1ENR1 |= RCC_APB1ENR1_USART2EN; //start APB1 timer (didnt need AHB1 to open APB1)
+	tmpreg = RCC->APB1ENR1;
 	UNUSED(tmpreg);
 
-	GPIOA->
-	USART1->BRR =
-	USART1->CR1 =
+	GPIOA->MODER |= GPIO_MODER_MODE2_1; //PA_2 (TX) 10 Alternate function
+	GPIOA->MODER |= GPIO_MODER_MODE3_1; //PA_3 (RX) 10 Alternate function
+
+	GPIOA->AFR[0]
 
 
-    // 2. Set PA9 (TX) as alternate function push-pull
-    GPIOA->CRH &= ~(0xF << 4);         // Clear CNF9 + MODE9
-    GPIOA->CRH |=  (0xB << 4);         // MODE9 = 0b11 (50 MHz), CNF9 = 0b10 (AF PP)
 
-    // 3. Set PA10 (RX) as input floating
-    GPIOA->CRH &= ~(0xF << 8);         // Clear CNF10 + MODE10
-    GPIOA->CRH |=  (0x4 << 8);         // CNF10 = 0b01 (floating input), MODE10 = 0b00
 
-    // 4. Set baud rate
-    USART1->BRR = 72000000 / 9600;     // Assuming 72 MHz PCLK2
+	//USART2->CR1 |= USART_CR1_PCE //parity control (1)enable/(0)disable
+	//USART2->CR1 |= USART_CR1_PS; //parity 0 even, 1 odd. This field only written when USART disabled
+	USART2->CR1 &= ~USART_CR1_M1; //I want M[1:0] to be 00: 1 Start bit, 8 data bits, n stop bits
+	USART2->CR1 &= ~USART_CR1_M0;
+	USART2->CR2 &= ~USART_CR2_STOP; //set n stop bits to 1 stop bit (also, keep in mind 0 for all of these are default) im just setting these here for learning reasons
+	USART2->CR1 |= USART_CR1_RE; //receiver enable
+	USART2->CR1 |= USART_CR1_TE; //transmitter enable
+	USART2->CR1 |= USART_CR1_UE; //enable usart2. This is last because other USART2 stuff needs to configure first
 
-    // 5. Enable USART1: TE (transmit), RE (receive), UE (USART enable)
-    USART1->CR1 |= USART_CR1_TE | USART_CR1_RE | USART_CR1_UE;
-}
+	USART2->BRR = 80000000 / 9600; //80mHz/9600 baud. Gives 8333hz/1 baud. UART frame is 1 bit every 8333 APB1 clock cycles
+								   //we set M[1:0] as 00 so 1 start bit, 8 data bits, and 1 end bit. 10 x 8333.33 is 83,333 clock cycles per word
+								   //if 80mHz that mean each uart word should take 1/960th of a second. about 1ms. Which is sort of slow?
 
-void uart1_send_char(char c) {
-    while (!(USART1->SR & USART_SR_TXE));  // Wait until TX buffer is empty
-    USART1->DR = c;
-}
-
-void uart1_send_str(const char *s) {
-    while (*s) {
-        uart1_send_char(*s++);
-    }
 }
 
 
