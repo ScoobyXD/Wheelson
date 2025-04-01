@@ -6,46 +6,50 @@ void SystemClock_Config(void);
 void TurretMotors_Config(void);
 void TurretRight(void);
 void TurretLeft(void);
+void TurretDoNothing(void);
 
 
 int main(void)
 {
-
   HAL_Init();
   SystemClock_Config();
   TurretMotors_Config();
 
-  while (1)
+  char UserCommand;
+
+  while (1) //as of now doing roughly 400 pulses every second
   {
-
-
-
- 	  //GPIOA->BSRR = GPIO_BSRR_BS9; //Turn right. This is a write only, so just set it = If you do |= that means you LDR that register to read, which resets it to 0.
-
- 	  //GPIOA->BSRR = 0;//does nothing
-
- 	  //GPIOA->BSRR = GPIO_BSRR_BS9;
-
-	  //as of now doing roughly 400 pulses every second
- 	  TIM1->CCR1 = 4096; //remember, CCR1 values measure strength of PUL, not some register config
- 	  HAL_Delay(1000);
- 	  //TIM1->CCR1 = 0; //stops moving
- 	  HAL_Delay(1000);
-
- 	  TIM1->CR1 |= TIM_CR1_CEN;     //Start TIM1 timer counter (will start turning left by default)this is what starts it.
-
- 	 GPIOA->BSRR = GPIO_BSRR_BS9;
- 	 GPIOA->BSRR = GPIO_BSRR_BR9;
-
+	  printf("Give command: \n");
+	  scanf("%d", &UserCommand);
+	  //poll for user inputs
+	  //logic to check commands
+	  if(UserCommand == 'A'){
+		  TurretLeft();
+	  }
+	  else if(UserCommand == 'D'){
+		  TurretRight();
+	  }
+	  else {
+		  TurretDoNothing();
+	  }
   }
 }
 void TurretRight(void){
 	GPIOA->BSRR = GPIO_BSRR_BS9;
+	TIM1->CCR1 = 4096;
+	TIM1->CR1 |= TIM_CR1_CEN;
+
 }
 
 void TurretLeft(void){
 	GPIOA->BSRR = GPIO_BSRR_BR9;
+	TIM1->CCR1 = 4096;
+	TIM1->CR1 |= TIM_CR1_CEN;
 }
+void TurretDoNothing(void){
+	TIM1->CCR1 = 0;
+}
+
 void TurretMotors_Config(void){
 	__IO uint32_t tmpreg;
 
@@ -81,8 +85,8 @@ void TurretMotors_Config(void){
 	GPIOA->PUPDR &= ~GPIO_PUPDR_PUPD8_Msk; //0x00 neither pull up nor pull down
 
 	TIM1->CCMR1 &= ~TIM_CCMR1_OC1M_Msk;
-	TIM1->CCMR1 |= (6 << TIM_CCMR1_OC1M_Pos);  // Set PWM mode 1 on CH1
-	TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Enable preload register
+	TIM1->CCMR1 |= (6 << TIM_CCMR1_OC1M_Pos);  // Set PWM mode 1 on CH1 (mode 1 is in upcounting, CH1 is active as long as TIM CNT < TIM CCR1
+	TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Enable preload register. (. TIMx_CCR1 preload value is loaded in the active register at each update event)
 
 	TIM1->PSC = 0; //so we keep clock at 80mhz and not divide it by anything. (x) x (0+1)
 	TIM1->ARR = 8192; //Max value is 16 bit width 65535
