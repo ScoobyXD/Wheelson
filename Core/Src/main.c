@@ -1,6 +1,7 @@
 #include "main.h"
 #include "stm32l476xx.h"
 #include "stm32l4xx_hal_pwr_ex.h"
+#include "stdio.h"
 
 void SystemClock_Config(void);
 void TurretMotors_Config(void);
@@ -19,6 +20,12 @@ int main(void)
 
   while (1) //as of now doing roughly 400 pulses every second
   {
+
+	  uint8_t rx;
+
+	  HAL_UART_Receive(&huart1, &rx, 1, HAL_MAX_DELAY);
+	  HAL_UART_Transmit(&huart1, &rx, 1, HAL_MAX_DELAY);
+
 	  printf("Give command: \n");
 	  scanf("%d", &UserCommand);
 	  //poll for user inputs
@@ -93,6 +100,25 @@ void TurretMotors_Config(void){
 
 	TIM1->CCER |= TIM_CCER_CC1E;  // Enable CH1 output (Capture mode enable)
 	TIM1->BDTR |= TIM_BDTR_MOE;   // Main output enable (For advanced timers like TIM1/TIM8)
+}
+
+UART_HandleTypeDef huart1;
+
+void MX_USART1_UART_Init(void)
+{
+    huart1.Instance = USART1;
+    huart1.Init.BaudRate = 9600;
+    huart1.Init.WordLength = UART_WORDLENGTH_8B;
+    huart1.Init.StopBits = UART_STOPBITS_1;
+    huart1.Init.Parity = UART_PARITY_NONE;
+    huart1.Init.Mode = UART_MODE_TX_RX;
+    huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+    huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+
+    if (HAL_UART_Init(&huart1) != HAL_OK)
+    {
+        Error_Handler();
+    }
 }
 
 void SystemClock_Config(void)
