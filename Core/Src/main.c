@@ -6,31 +6,38 @@
 void SystemClock_Config(void);
 void TurretMotors_Config(void);
 void USART2_Config(void);
+
 void TurretRight(void);
 void TurretLeft(void);
 void TurretDoNothing(void);
+
+void USART_ReadTranslate(void);
+
+
 __IO uint32_t tmpreg;
+__IO uint16_t USART_RX;
+char Left = 'A';
+char Right = 'D';
+char NoCommand = 'X';
+char UserCommand;
 
 int main(void)
 {
-
   HAL_Init();
   SystemClock_Config();
   TurretMotors_Config();
-
-  char UserCommand;
+  USART2_Config();
 
   while (1) //as of now doing roughly 400 pulses every second
   {
-	  //poll for user inputs
-	  //logic to check commands
-	  if(UserCommand == 'A'){
+	  USART_ReadTranslate();
+	  if(UserCommand == Left){
 		  TurretLeft();
 	  }
-	  else if(UserCommand == 'D'){
+	  else if(UserCommand == Right){
 		  TurretRight();
 	  }
-	  else {
+	  else if(UserCommand == NoCommand){
 		  TurretDoNothing();
 	  }
 
@@ -44,7 +51,6 @@ void TurretRight(void){
 	GPIOA->BSRR = GPIO_BSRR_BS9;
 	TIM1->CCR1 = 4096;
 	TIM1->CR1 |= TIM_CR1_CEN;
-
 }
 
 void TurretLeft(void){
@@ -56,9 +62,20 @@ void TurretDoNothing(void){
 	TIM1->CCR1 = 0;
 }
 
+void USART_ReadTranslate(void){
+	USART_RX = USART2->RDR;
+	if(USART_RX == 65){ //ASCII 'A' is 65 or 01000001
+		UserCommand = Left;
+	}
+	else if(USART_RX == 68){ //ASCII 'D' is 68 or 01000100
+		UserCommand = Right;
+	}
+	else{
+		UserCommand = NoCommand;
+	}
+}
+
 void TurretMotors_Config(void){
-
-
 	RCC->AHB2ENR &= ~RCC_AHB2ENR_GPIOAEN;
 	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOAEN; //activate clock for port A
 	tmpreg = RCC->AHB2ENR;
@@ -108,13 +125,13 @@ void USART2_Config(void) {
 	tmpreg = RCC->APB1ENR1;
 	UNUSED(tmpreg);
 
+	GPIOA->MODER &= ~GPIO_MODER_MODE2_Msk; //keep in mind the reset value is 11, so need to BIC the mask first
 	GPIOA->MODER |= GPIO_MODER_MODE2_1; //PA_2 (TX) 10 Alternate function
+	GPIOA->MODER &= ~GPIO_MODER_MODE3_Msk;
 	GPIOA->MODER |= GPIO_MODER_MODE3_1; //PA_3 (RX) 10 Alternate function
 
-	GPIOA->AFR[0]
-
-
-
+	GPIOA->AFR[0] |= (0x7UL << 8U); //Alternate function 0111 (USART2) for PA_2
+	GPIOA->AFR[0] |= (0x7UL << 12U); //Alternate function 0111 (USART2) for PA_3
 
 	//USART2->CR1 |= USART_CR1_PCE //parity control (1)enable/(0)disable
 	//USART2->CR1 |= USART_CR1_PS; //parity 0 even, 1 odd. This field only written when USART disabled
@@ -128,8 +145,11 @@ void USART2_Config(void) {
 	USART2->BRR = 80000000 / 9600; //80mHz/9600 baud. Gives 8333hz/1 baud. UART frame is 1 bit every 8333 APB1 clock cycles
 								   //we set M[1:0] as 00 so 1 start bit, 8 data bits, and 1 end bit. 10 x 8333.33 is 83,333 clock cycles per word
 								   //if 80mHz that mean each uart word should take 1/960th of a second. about 1ms. Which is sort of slow?
-
 }
+
+
+
+
 
 
 void SystemClock_Config(void)
