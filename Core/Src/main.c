@@ -7,19 +7,15 @@ void SystemClock_Config(void);
 void TurretMotors_Config(void);
 void USART2_Config(void);
 
-void TurretRight(void);
+void USART_ReadTranslate(void);
 void TurretLeft(void);
+void TurretRight(void);
 void TurretDoNothing(void);
 
-void USART_ReadTranslate(void);
-
-
 __IO uint32_t tmpreg;
-__IO uint16_t USART_RX;
 char Left = 'A';
 char Right = 'D';
 char NoCommand = 'X';
-char UserCommand;
 
 int main(void)
 {
@@ -31,26 +27,20 @@ int main(void)
   while (1) //as of now doing roughly 400 pulses every second
   {
 	  USART_ReadTranslate();
-	  if(UserCommand == Left){
-		  TurretLeft();
-	  }
-	  else if(UserCommand == Right){
-		  TurretRight();
-	  }
-	  else if(UserCommand == NoCommand){
-		  TurretDoNothing();
-	  }
-
-	  TurretLeft();
-	  TurretRight();
-	  TurretLeft();
-	  TurretRight();
   }
 }
-void TurretRight(void){
-	GPIOA->BSRR = GPIO_BSRR_BS9;
-	TIM1->CCR1 = 4096;
-	TIM1->CR1 |= TIM_CR1_CEN;
+
+char USART_ReadTranslate(void){
+	__IO uint16_t USART_RX = USART2->RDR;
+	if(USART_RX == 65){ //ASCII 'A' is 65 or 01000001
+		TurretLeft();
+	}
+	else if(USART_RX == 68){ //ASCII 'D' is 68 or 01000100
+		TurretRight();
+	}
+	else{
+		return TurretDoNothing();
+	}
 }
 
 void TurretLeft(void){
@@ -58,22 +48,16 @@ void TurretLeft(void){
 	TIM1->CCR1 = 4096;
 	TIM1->CR1 |= TIM_CR1_CEN;
 }
+void TurretRight(void){
+	GPIOA->BSRR = GPIO_BSRR_BS9;
+	TIM1->CCR1 = 4096;
+	TIM1->CR1 |= TIM_CR1_CEN;
+}
 void TurretDoNothing(void){
 	TIM1->CCR1 = 0;
 }
 
-void USART_ReadTranslate(void){
-	USART_RX = USART2->RDR;
-	if(USART_RX == 65){ //ASCII 'A' is 65 or 01000001
-		UserCommand = Left;
-	}
-	else if(USART_RX == 68){ //ASCII 'D' is 68 or 01000100
-		UserCommand = Right;
-	}
-	else{
-		UserCommand = NoCommand;
-	}
-}
+
 
 void TurretMotors_Config(void){
 	RCC->AHB2ENR &= ~RCC_AHB2ENR_GPIOAEN;
