@@ -147,11 +147,6 @@ void USART2_Config(void) {
 								   //if 80mHz that mean each uart word should take 1/960th of a second. about 1ms. Which is sort of slow?
 }
 
-
-
-
-
-
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
