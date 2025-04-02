@@ -13,9 +13,6 @@ void TurretRight(void);
 void TurretDoNothing(void);
 
 __IO uint32_t tmpreg;
-char Left = 'A';
-char Right = 'D';
-char NoCommand = 'X';
 
 int main(void)
 {
@@ -56,8 +53,6 @@ void TurretRight(void){
 void TurretDoNothing(void){
 	TIM1->CCR1 = 0;
 }
-
-
 
 void TurretMotors_Config(void){
 	RCC->AHB2ENR &= ~RCC_AHB2ENR_GPIOAEN;
