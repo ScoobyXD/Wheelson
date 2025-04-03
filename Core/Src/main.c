@@ -1,8 +1,4 @@
 #include "main.h"
-#include "stm32l476xx.h"
-#include "stm32l4xx_hal_pwr_ex.h"
-#include "stdio.h"
-#include "core_cm4.h"
 
 void SystemClock_Config(void);
 void TurretMotors_Config(void);
@@ -14,7 +10,6 @@ void TurretLeft(void);
 void TurretRight(void);
 void TurretDoNothing(void);
 
-
 __IO uint32_t tmpreg;
 
 int main(void)
@@ -24,7 +19,7 @@ int main(void)
   TurretMotors_Config();
   USART2_Config();
 
-  while (1) //as of now doing roughly 400 pulses every second
+  while (1)
   {
   }
 }
@@ -70,15 +65,16 @@ void TurretMotors_Config(void){
 	tmpreg = RCC->APB2ENR;
 	UNUSED(tmpreg); //standard practice to delay after starting timer to give it time to start
 
+	// Whether CFGR stays or not doesnt affect the register but I could swear the motor is smoother if this remains.
 	RCC->CFGR &= ~RCC_CFGR_PPRE2;
-	RCC->CFGR |= (0 << RCC_CFGR_PPRE2_Pos); // make sure PCLK2 is not divided, so HCLK not divided 0x00
+	RCC->CFGR |= (0 << RCC_CFGR_PPRE2_Pos); //APB high-speed prescaler (APB2) make sure PCLK2 is not divided, so HCLK not divided 0x00, default already 0 for this bit position
 
 	//Base motor direction (push/pull) GPIO Pin 9, STM32 pin D8
 	GPIOA->MODER &= ~GPIO_MODER_MODE9_Msk; //remember each pin is 2 bits wide, so when BIC must use 0x03
 	GPIOA->MODER |= GPIO_MODER_MODE9_0; //set PA9 to output (01)
 
-	GPIOA->OTYPER &= ~GPIO_OTYPER_OT9; //Output push-pull (reset state) (default value)
-	GPIOA->PUPDR &= ~GPIO_PUPDR_PUPD9_Msk; //set to 0x00, neither pull up nor pull down
+	//GPIOA->OTYPER &= ~GPIO_OTYPER_OT9; //Output push-pull (reset state) (default value)
+	//GPIOA->PUPDR &= ~GPIO_PUPDR_PUPD9_Msk; // (reset state) set to 0x00, neither pull up nor pull down
 
 	//Base motor power (PWM) GPIO Pin 8, STM32 pin D7
 	GPIOA->MODER &= ~GPIO_MODER_MODE8_Msk;
@@ -87,15 +83,15 @@ void TurretMotors_Config(void){
 	GPIOA->AFR[1] &= ~GPIO_AFRH_AFSEL8_Msk;
 	GPIOA->AFR[1] |= GPIO_AFRH_AFSEL8_0; //set PA8 to AF1 (alternate function 1), which is TIM1_CH1
 
-	GPIOA->OSPEEDR |= GPIO_OSPEEDR_OSPEED8_Msk; //11 very high speed
-	GPIOA->OTYPER &= ~GPIO_OTYPER_OT8_Msk; //0x00 for output push/pull
-	GPIOA->PUPDR &= ~GPIO_PUPDR_PUPD8_Msk; //0x00 neither pull up nor pull down
+	GPIOA->OSPEEDR |= GPIO_OSPEEDR_OSPEED8_Msk; //11 very high speed, default is 00, you probably can't tell the difference anyways
+	//GPIOA->OTYPER &= ~GPIO_OTYPER_OT8_Msk; //0x00 for output push/pull
+	//GPIOA->PUPDR &= ~GPIO_PUPDR_PUPD8_Msk; //0x00 neither pull up nor pull down
 
 	TIM1->CCMR1 &= ~TIM_CCMR1_OC1M_Msk;
 	TIM1->CCMR1 |= (6 << TIM_CCMR1_OC1M_Pos);  // Set PWM mode 1 on CH1 (mode 1 is in upcounting, CH1 is active as long as TIM CNT < TIM CCR1
-	TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Enable preload register. (. TIMx_CCR1 preload value is loaded in the active register at each update event)
+	//TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Enable preload register. (. TIMx_CCR1 preload value is loaded in the active register at each update event)
 
-	TIM1->PSC = 0; //so we keep clock at 80mhz and not divide it by anything. (x) x (0+1)
+	//TIM1->PSC = 0; //so we keep clock at 4mhz (default for APB1) and not divide it by anything. (x) x (0+1)
 	TIM1->ARR = 8192; //Max value is 16 bit width 65535
 
 	TIM1->CCER |= TIM_CCER_CC1E;  // Enable CH1 output (Capture mode enable)
@@ -119,11 +115,11 @@ void USART2_Config(void) {
 
 	//USART2->CR1 |= USART_CR1_PCE //parity control (1)enable/(0)disable
 	//USART2->CR1 |= USART_CR1_PS; //parity 0 even, 1 odd. This field only written when USART disabled
-	USART2->CR1 &= ~USART_CR1_M1; //I want M[1:0] to be 00: 1 Start bit, 8 data bits, n stop bits
-	USART2->CR1 &= ~USART_CR1_M0;
-	USART2->CR2 &= ~USART_CR2_STOP; //set n stop bits to 1 stop bit (also, keep in mind 0 for all of these are default) im just setting these here for learning reasons
+	//USART2->CR1 &= ~USART_CR1_M1; //I want M[1:0] to be 00: 1 Start bit, 8 data bits, n stop bits (reset value)
+	//USART2->CR1 &= ~USART_CR1_M0; (reset value)
+	//USART2->CR2 &= ~USART_CR2_STOP; //set n stop bits to 1 stop bit (also, keep in mind 0 for all of these are default) im just setting these here for learning reasons (reset value)
 	USART2->CR1 |= USART_CR1_RE; //receiver enable
-	USART2->CR1 |= USART_CR1_TE; //transmitter enable
+	USART2->CR1 |= USART_CR1_TE; //transmitter enable (only need if you are tx back to something, which I might do eventually)
 	USART2->CR1 |= USART_CR1_RXNEIE; //allow RXNE interrupts in USART2
 	USART2->CR1 |= USART_CR1_UE; //enable usart2. This is last because other USART2 stuff needs to configure first
 	USART2->BRR = 4000000 / 9600; //4mHz/9600 baud. Gives 417hz/1 baud. UART frame is 1 bit every 417 APB1 clock cycles
@@ -175,11 +171,6 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 }
-
-/* USER CODE BEGIN 4 */
-
-/* USER CODE END 4 */
-
 /**
   * @brief  This function is executed in case of error occurrence.
   * @retval None
