@@ -26,17 +26,17 @@ int main(void)
 
   while (1) //as of now doing roughly 400 pulses every second
   {
-
   }
 }
 
 void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by hardware even if function not in main.
 	if((USART2->ISR & USART_ISR_RXNE) != 0){ //register will be 1 if there is data in RDR register. Will be 0 if there is nothing.
 		volatile uint16_t RX_Value = USART2->RDR; // Reading RDR automatically clears the RXNE flag. Volatile because variable stores interrupt data.
-		if(RX_Value == 65){ //ASCII 'A' is 65 or 01000001
+		USART2->TDR = RX_Value;
+		if(RX_Value == 97){ //ASCII 'a' is 97
 			TurretLeft();
 		}
-		else if(RX_Value == 68){ //ASCII 'D' is 68 or 01000100
+		else if(RX_Value == 100){ //ASCII 'd' is 100
 			TurretRight();
 		}
 		else{
@@ -126,9 +126,9 @@ void USART2_Config(void) {
 	USART2->CR1 |= USART_CR1_TE; //transmitter enable
 	USART2->CR1 |= USART_CR1_RXNEIE; //allow RXNE interrupts in USART2
 	USART2->CR1 |= USART_CR1_UE; //enable usart2. This is last because other USART2 stuff needs to configure first
-	USART2->BRR = 80000000 / 9600; //80mHz/9600 baud. Gives 8333hz/1 baud. UART frame is 1 bit every 8333 APB1 clock cycles
-								   //we set M[1:0] as 00 so 1 start bit, 8 data bits, and 1 end bit. 10 x 8333.33 is 83,333 clock cycles per word
-								   //if 80mHz that mean each uart word should take 1/960th of a second. about 1ms and each bit is 1x10^-4 s. Which is sort of slow?
+	USART2->BRR = 4000000 / 9600; //4mHz/9600 baud. Gives 417hz/1 baud. UART frame is 1 bit every 417 APB1 clock cycles
+								   //we set M[1:0] as 00 so 1 start bit, 8 data bits, and 1 end bit. 10 x 417 is 4170 clock cycles per word
+								   //if 4mHz that mean each uart word should take about 1ms and each bit is 1x10^-4 s. Which is sort of slow?
 	NVIC_IRQn_Set(USART2_IRQn); //set up NVIC to allow USART2 interrupts. Now the hardware takes over so whenever RDR has data, the hardware will trigger the interrupt handler
 }
 
