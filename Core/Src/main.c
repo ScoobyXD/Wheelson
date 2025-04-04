@@ -1,4 +1,8 @@
 #include "main.h"
+#include "stm32l476xx.h"
+#include "stm32l4xx_hal_pwr_ex.h"
+#include "stdio.h"
+#include "core_cm4.h"
 
 void SystemClock_Config(void);
 void TurretMotors_Config(void);
@@ -6,6 +10,8 @@ void USART2_Config(void);
 void NVIC_IRQn_Set(IRQn_Type IRQ);
 
 void USART2_IRQHandler(void); //must be called this because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
+void TurretUp(void);
+void TurretDown(void);
 void TurretLeft(void);
 void TurretRight(void);
 void TurretDoNothing(void);
@@ -27,8 +33,14 @@ int main(void)
 void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by hardware even if function not in main.
 	if((USART2->ISR & USART_ISR_RXNE) != 0){ //register will be 1 if there is data in RDR register. Will be 0 if there is nothing.
 		volatile uint16_t RX_Value = USART2->RDR; // Reading RDR automatically clears the RXNE flag. Volatile because variable stores interrupt data.
-		USART2->TDR = RX_Value;
-		if(RX_Value == 97){ //ASCII 'a' is 97
+		//USART2->TDR = RX_Value;
+		if(RX_Value == 119){ //ASCII 'w' is 119
+			TurretUp();
+		}
+		else if(RX_Value == 115){ //ASCII 's' is 115
+			TurretDown();
+		}
+		else if(RX_Value == 97){ //ASCII 'a' is 97
 			TurretLeft();
 		}
 		else if(RX_Value == 100){ //ASCII 'd' is 100
@@ -40,14 +52,22 @@ void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by
 	}
 }
 
+void TurretUp(void){
+	GPIOA->BSRR = GPIO_BSRR_BS6; //direction pin 6
+	TIM3->CR1 |= TIM_CR1_CEN; //pwm TIM3 enable
+}
+
+void TurretDown(void){
+	GPIOA->BSRR = GPIO_BSRR_BR6;
+	TIM3->CR1 |= TIM_CR1_CEN;
+}
+
 void TurretLeft(void){
-	GPIOA->BSRR = GPIO_BSRR_BR9;
-	TIM1->CCR1 = 4096;
-	TIM1->CR1 |= TIM_CR1_CEN;
+	GPIOA->BSRR = GPIO_BSRR_BR9; //direction pin 9
+	TIM1->CR1 |= TIM_CR1_CEN; //pwm TIM1 enables
 }
 void TurretRight(void){
 	GPIOA->BSRR = GPIO_BSRR_BS9;
-	TIM1->CCR1 = 4096;
 	TIM1->CR1 |= TIM_CR1_CEN;
 }
 void TurretDoNothing(void){
@@ -76,26 +96,45 @@ void TurretMotors_Config(void){
 	//GPIOA->OTYPER &= ~GPIO_OTYPER_OT9; //Output push-pull (reset state) (default value)
 	//GPIOA->PUPDR &= ~GPIO_PUPDR_PUPD9_Msk; // (reset state) set to 0x00, neither pull up nor pull down
 
-	//Base motor power (PWM) GPIO Pin 8, STM32 pin D7
+	//Base motor direction GPIO Pin 6
+	GPIOA->MODER &= ~GPIO_MODER_MODE6_Msk;
+	GPIOA->MODER |= GPIO_MODER_MODE6_0; //set to output, 01
+
+
+	//Base motor power (PWM) GPIO Pin 8, TIM1_CH1, STM32 pin D7
 	GPIOA->MODER &= ~GPIO_MODER_MODE8_Msk;
 	GPIOA->MODER |= GPIO_MODER_MODE8_1; //set PA8 to alternative function
 
 	GPIOA->AFR[1] &= ~GPIO_AFRH_AFSEL8_Msk;
-	GPIOA->AFR[1] |= GPIO_AFRH_AFSEL8_0; //set PA8 to AF1 (alternate function 1), which is TIM1_CH1
+	GPIOA->AFR[1] |= GPIO_AFRH_AFSEL8_0; //set PA8 to AF1 (alternate function 1), which is TIM1_CH1. Also AF[0] are pins 0:7 and AF[1] are pins 8:15
 
-	GPIOA->OSPEEDR |= GPIO_OSPEEDR_OSPEED8_Msk; //11 very high speed, default is 00, you probably can't tell the difference anyways
+	//GPIOA->OSPEEDR |= GPIO_OSPEEDR_OSPEED8_Msk; //11 very high speed, default is 00, you probably can't tell the difference anyways
 	//GPIOA->OTYPER &= ~GPIO_OTYPER_OT8_Msk; //0x00 for output push/pull
 	//GPIOA->PUPDR &= ~GPIO_PUPDR_PUPD8_Msk; //0x00 neither pull up nor pull down
 
 	TIM1->CCMR1 &= ~TIM_CCMR1_OC1M_Msk;
-	TIM1->CCMR1 |= (6 << TIM_CCMR1_OC1M_Pos);  // Set PWM mode 1 on CH1 (mode 1 is in upcounting, CH1 is active as long as TIM CNT < TIM CCR1
+	TIM1->CCMR1 |= TIM_CCMR1_OC1M; //CCMR1 has configurations for both Ch1 and Ch2  // Set PWM mode 1 on CH1 (mode 1 is in upcounting, CH1 is active as long as TIM CNT < TIM CCR1. Configures 0111 for Ch1
 	//TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Enable preload register. (. TIMx_CCR1 preload value is loaded in the active register at each update event)
 
 	//TIM1->PSC = 0; //so we keep clock at 4mhz (default for APB1) and not divide it by anything. (x) x (0+1)
 	TIM1->ARR = 8192; //Max value is 16 bit width 65535
-
+	TIM1->CCR1 = 4096; //keep in mind CCR1 is channel 1, so CCR2 would be channel 2
 	TIM1->CCER |= TIM_CCER_CC1E;  // Enable CH1 output (Capture mode enable)
 	TIM1->BDTR |= TIM_BDTR_MOE;   // Main output enable (For advanced timers like TIM1/TIM8)
+
+	//Base motor power (PWM) GPIO Pin 7, TIM3_CH2
+	GPIOA->MODER &= ~GPIO_MODER_MODE7_Msk;
+	GPIOA->MODER |= GPIO_MODER_MODE7_1; //Alternate function for pin 12
+
+	GPIOA->AFR[0] &= ~GPIO_AFRL_AFSEL7_Msk;
+	GPIOA->AFR[0] |= GPIO_AFRL_AFSEL7_3; //Pin 7, AF[0] is 0111 for TIM3_CH2. Also AF[0] are pins 0:7 and AF[1] are pins 8:15
+
+	TIM3->CCMR1 |= TIM_CCMR1_OC2M; //CCMR1 has configurations for both Ch1 and Ch2, this configures 0111 for Ch2
+	TIM3->ARR = 8192; //Auto reload value (marks the rising edge in PWM) Max value is 16 bit width, 65535
+	TIM3->CCR3 = 4096;
+	TIM3->CCER |= TIM_CCER_CC2E; //enable ch2 output
+	TIM3->BDTR |= TIM_BDTR_MOE; //main output enable
+
 }
 
 void USART2_Config(void) {
