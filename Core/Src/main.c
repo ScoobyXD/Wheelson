@@ -14,7 +14,9 @@ void TurretUp(void);
 void TurretDown(void);
 void TurretLeft(void);
 void TurretRight(void);
-void TurretDoNothing(void);
+void TurretUpDownDoNothing(void);
+void TurretLeftRightDoNothing(void);
+
 
 __IO uint32_t tmpreg;
 
@@ -46,8 +48,11 @@ void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by
 		else if(RX_Value == 100){ //ASCII 'd' is 100
 			TurretRight();
 		}
-		else{
-			TurretDoNothing();
+		else if(RX_Value == 121){ //ASCII 'y' is 121
+			TurretUpDownDoNothing();
+		}
+		else if(RX_Value == 120){ //ASCII 'x' is 120
+			TurretLeftRightDoNothing();
 		}
 		USART2->TDR = RX_Value;
 	}
@@ -71,9 +76,12 @@ void TurretRight(void){
 	GPIOA->BSRR = GPIO_BSRR_BS9;
 	TIM1->CR1 |= TIM_CR1_CEN;
 }
-void TurretDoNothing(void){
-	TIM1->CR1 &= ~TIM_CR1_CEN;
+void TurretUpDownDoNothing(void){
 	TIM3->CR1 &= ~TIM_CR1_CEN;
+}
+
+void TurretLeftRightDoNothing(void){
+	TIM1->CR1 &= ~TIM_CR1_CEN;
 }
 
 void TurretMotors_Config(void){
@@ -103,7 +111,7 @@ void TurretMotors_Config(void){
 	GPIOA->MODER |= GPIO_MODER_MODE6_0; //set to output, 01
 
 
-	//Base motor power (PWM) GPIO Pin 8, TIM1_CH1, STM32 pin D7
+	//Base motor left/right (PWM) GPIO Pin 8, TIM1_CH1, STM32 pin D7
 	GPIOA->MODER &= ~GPIO_MODER_MODE8_Msk;
 	GPIOA->MODER |= GPIO_MODER_MODE8_1; //set PA8 to alternative function
 
@@ -124,7 +132,7 @@ void TurretMotors_Config(void){
 	TIM1->CCER |= TIM_CCER_CC1E;  // Enable CH1 output (Capture mode enable)
 	TIM1->BDTR |= TIM_BDTR_MOE;   // Main output enable (For advanced timers like TIM1/TIM8)
 
-	//Base motor power (PWM) GPIO Pin 7, TIM3_CH2
+	//Base motor up/down (PWM) GPIO Pin 7, TIM3_CH2
 	GPIOA->MODER &= ~GPIO_MODER_MODE7_Msk;
 	GPIOA->MODER |= GPIO_MODER_MODE7_1; //Alternate function for pin 12
 

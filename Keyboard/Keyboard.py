@@ -24,7 +24,11 @@ def right(event):
     ser.write(b'd')  #send 'd' as a byte
     print('d')
 
-def pause(event):
+def udpause(event):
+    ser.write(b'y') #send 'x' as a byte
+    print('y')
+
+def lrpause(event):
     ser.write(b'x') #send 'x' as a byte
     print('x')
 
@@ -40,10 +44,10 @@ keyboard.on_press_key("s", down)
 keyboard.on_press_key("a", left)
 keyboard.on_press_key("d", right)
 
-keyboard.on_release_key("w", pause)
-keyboard.on_release_key("s", pause)
-keyboard.on_release_key("a", pause)
-keyboard.on_release_key("d", pause)
+keyboard.on_release_key("w", udpause)
+keyboard.on_release_key("s", udpause)
+keyboard.on_release_key("a", lrpause)
+keyboard.on_release_key("d", lrpause)
 
 #exit command
 keyboard.wait('esc') 
