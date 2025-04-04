@@ -33,7 +33,7 @@ int main(void)
 void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by hardware even if function not in main.
 	if((USART2->ISR & USART_ISR_RXNE) != 0){ //register will be 1 if there is data in RDR register. Will be 0 if there is nothing.
 		volatile uint16_t RX_Value = USART2->RDR; // Reading RDR automatically clears the RXNE flag. Volatile because variable stores interrupt data.
-		//USART2->TDR = RX_Value;
+
 		if(RX_Value == 119){ //ASCII 'w' is 119
 			TurretUp();
 		}
@@ -49,6 +49,7 @@ void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by
 		else{
 			TurretDoNothing();
 		}
+		USART2->TDR = RX_Value;
 	}
 }
 
@@ -71,7 +72,8 @@ void TurretRight(void){
 	TIM1->CR1 |= TIM_CR1_CEN;
 }
 void TurretDoNothing(void){
-	TIM1->CCR1 = 0;
+	TIM1->CR1 &= ~TIM_CR1_CEN;
+	TIM3->CCR3 &= ~TIM_CR1_CEN;
 }
 
 void TurretMotors_Config(void){
@@ -127,13 +129,18 @@ void TurretMotors_Config(void){
 	GPIOA->MODER |= GPIO_MODER_MODE7_1; //Alternate function for pin 12
 
 	GPIOA->AFR[0] &= ~GPIO_AFRL_AFSEL7_Msk;
-	GPIOA->AFR[0] |= GPIO_AFRL_AFSEL7_3; //Pin 7, AF[0] is 0111 for TIM3_CH2. Also AF[0] are pins 0:7 and AF[1] are pins 8:15
+	GPIOA->AFR[0] |= GPIO_AFRL_AFSEL7_1; //Pin 7, AF[0] is 0010 for TIM3_CH2. Also AF[0] are pins 0:7 and AF[1] are pins 8:15
+
+	RCC->APB1ENR1 &= ~RCC_APB1ENR1_TIM3EN_Msk;
+	RCC->APB1ENR1 |= RCC_APB1ENR1_TIM3EN; //enable Tim1
+	tmpreg = RCC->APB1ENR1;
+	UNUSED(tmpreg); //standard practice to delay after starting timer to give it time to start
 
 	TIM3->CCMR1 |= TIM_CCMR1_OC2M; //CCMR1 has configurations for both Ch1 and Ch2, this configures 0111 for Ch2
 	TIM3->ARR = 8192; //Auto reload value (marks the rising edge in PWM) Max value is 16 bit width, 65535
 	TIM3->CCR3 = 4096;
-	TIM3->CCER |= TIM_CCER_CC2E; //enable ch2 output
-	TIM3->BDTR |= TIM_BDTR_MOE; //main output enable
+	TIM3->CCER |= TIM_CCER_CC1E; //enable ch2 output
+	//TIM3 is a general timer, not advanced like TIM1 or TIM 8 so no need for BDTR and MOE
 
 }
 
