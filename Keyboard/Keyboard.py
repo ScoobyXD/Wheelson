@@ -3,41 +3,80 @@ import serial
 import keyboard
 import time
 
-
 ser = serial.Serial('COM4', 9600, timeout=1)  # timeout prevents hanging
 time.sleep(2)  # give the port time to initialize 
 print("Serial ready")
 
+aKey = False
+dKey = False
+wKey = False
+sKey = False
+space = False
+
+
 def up(event):
-    ser.write(b'w')  #send 'a' as a byte
-    print('w')
+    global wKey
+    if(wKey == False):
+        ser.write(b'w')  #send 'a' as a byte
+        wKey = True
+        print('w')
 
 def down(event):
-    ser.write(b's')  #send 'd' as a byte
-    print('s')
+    global sKey
+    if(sKey == False):
+        ser.write(b's')  #send 'd' as a byte
+        sKey = True
+        print('s')
 
 def left(event):
-    ser.write(b'a')  #send 'a' as a byte
-    print('a')
+    global aKey
+    if(aKey == False):
+        ser.write(b'a')  #send 'a' as a byte
+        aKey = True
+        print('a')
 
 def right(event):
-    ser.write(b'd')  #send 'd' as a byte
-    print('d')
+    global dKey
+    if(dKey == False):
+        ser.write(b'd')  #send 'd' as a byte
+        dKey = True
+        print('d')
 
 def fire(event):
-    ser.write(b' ')  #send ' ' as a byte
-    print(' ')
+    global space
+    if(space == False):
+        ser.write(b' ')  #send ' ' as a byte
+        space = True
+        print(' ')
 
-def udpause(event):
-    ser.write(b'y') #send 'x' as a byte
+def upPause(event):
+    global wKey
+    ser.write(b'y') #send 'y' as a byte
+    wKey = False
     print('y')
 
-def lrpause(event):
+def downPause(event):
+    global sKey
+    ser.write(b'y') #send 'y' as a byte
+    sKey = False
+    print('y')
+
+def leftPause(event):
+    global aKey
     ser.write(b'x') #send 'x' as a byte
+    aKey = False
     print('x')
 
-def firepause(event):
-    ser.write(b'z') #send 'x' as a byte
+def rightPause(event):
+    global dKey
+    ser.write(b'x') #send 'x' as a byte
+    dKey = False
+    print('x')
+
+def firePause(event):
+    global space
+    ser.write(b'z') #send 'z' as a byte
+    space = False
     print('z')
 
 def SerialOff(event):
@@ -53,11 +92,11 @@ keyboard.on_press_key("a", left)
 keyboard.on_press_key("d", right)
 keyboard.on_press_key(" ", fire)
 
-keyboard.on_release_key("w", udpause)
-keyboard.on_release_key("s", udpause)
-keyboard.on_release_key("a", lrpause)
-keyboard.on_release_key("d", lrpause)
-keyboard.on_release_key(" ", firepause)
+keyboard.on_release_key("w", upPause)
+keyboard.on_release_key("s", downPause)
+keyboard.on_release_key("a", leftPause)
+keyboard.on_release_key("d", rightPause)
+keyboard.on_release_key(" ", firePause)
 
 #exit command
 keyboard.wait('esc') 
