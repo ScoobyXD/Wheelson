@@ -7,16 +7,19 @@
 void SystemClock_Config(void);
 void TurretMotors_Config(void);
 void USART2_Config(void);
+void TurretFire_Config(void);
 void NVIC_IRQn_Set(IRQn_Type IRQ);
-
 void USART2_IRQHandler(void); //must be called this because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
+
+
 void TurretUp(void);
 void TurretDown(void);
 void TurretLeft(void);
 void TurretRight(void);
+void TurretFire(void);
 void TurretUpDownDoNothing(void);
 void TurretLeftRightDoNothing(void);
-
+void TurretFireDoNothing(void);
 
 __IO uint32_t tmpreg;
 
@@ -25,7 +28,9 @@ int main(void)
   HAL_Init();
   SystemClock_Config();
   TurretMotors_Config();
+  TurretFire_Config();
   USART2_Config();
+
 
   while (1)
   {
@@ -48,11 +53,17 @@ void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by
 		else if(RX_Value == 100){ //ASCII 'd' is 100
 			TurretRight();
 		}
+		else if(RX_Value == 32){ //ASCII ' ' is 32
+			TurretFire();
+		}
 		else if(RX_Value == 121){ //ASCII 'y' is 121
 			TurretUpDownDoNothing();
 		}
 		else if(RX_Value == 120){ //ASCII 'x' is 120
 			TurretLeftRightDoNothing();
+		}
+		else if(RX_Value == 122){ //ASCII 'z' is 120
+			TurretFireDoNothing();
 		}
 		USART2->TDR = RX_Value;
 	}
@@ -62,26 +73,29 @@ void TurretUp(void){
 	GPIOA->BSRR = GPIO_BSRR_BS6; //direction pin 6
 	TIM3->CR1 |= TIM_CR1_CEN; //pwm TIM3 enable
 }
-
 void TurretDown(void){
 	GPIOA->BSRR = GPIO_BSRR_BR6;
 	TIM3->CR1 |= TIM_CR1_CEN;
 }
-
 void TurretLeft(void){
-	GPIOA->BSRR = GPIO_BSRR_BR9; //direction pin 9
+	GPIOA->BSRR = GPIO_BSRR_BR9; //direction pin 9. Value is 1, so we are resetting to 0, so i guess not outputting pulse is left
 	TIM1->CR1 |= TIM_CR1_CEN; //pwm TIM1 enables
 }
 void TurretRight(void){
-	GPIOA->BSRR = GPIO_BSRR_BS9;
+	GPIOA->BSRR = GPIO_BSRR_BS9; //we're setting 1, which means right
 	TIM1->CR1 |= TIM_CR1_CEN;
 }
 void TurretUpDownDoNothing(void){
 	TIM3->CR1 &= ~TIM_CR1_CEN;
 }
-
 void TurretLeftRightDoNothing(void){
 	TIM1->CR1 &= ~TIM_CR1_CEN;
+}
+void TurretFire(void){
+	GPIOA->BSRR = GPIO_BSRR_BS5;
+}
+void TurretFireDoNothing(void){
+	GPIOA->BSRR = GPIO_BSRR_BR5;
 }
 
 void TurretMotors_Config(void){
@@ -184,6 +198,11 @@ void USART2_Config(void) {
 
 void NVIC_IRQn_Set(IRQn_Type IRQ){ //doesnt work with negative IRQs (which are error interrupts) so don't use negative ones
 	NVIC->ISER[IRQ>>5UL] = 1<<(IRQ-(32*(IRQ>>5UL))); //ISER[1] = 1<6UL, there are 8 accessible elements and each element has 32 bits.
+}
+
+void TurretFire_Config(void){
+	GPIOA->MODER &= ~GPIO_MODER_MODE5_Msk; //output mode 01. if the reset state is 11, you cannot just do |= 01, you must bic 11 first.
+	GPIOA->MODER |= GPIO_MODER_MODE5_0; //output mode 01
 }
 
 void SystemClock_Config(void)
