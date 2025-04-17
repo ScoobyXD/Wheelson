@@ -31,10 +31,6 @@ int main(void)
   TurretFire_Config();
   USART2_Config();
 
-
-  while (1)
-  {
-  }
 }
 
 void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by hardware even if function not in main.
@@ -70,11 +66,11 @@ void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by
 }
 
 void TurretUp(void){
-	GPIOA->BSRR = GPIO_BSRR_BS6; //direction pin 6
+	GPIOA->BSRR = GPIO_BSRR_BR6; //direction pin 6
 	TIM3->CR1 |= TIM_CR1_CEN; //pwm TIM3 enable
 }
 void TurretDown(void){
-	GPIOA->BSRR = GPIO_BSRR_BR6;
+	GPIOA->BSRR = GPIO_BSRR_BS6;
 	TIM3->CR1 |= TIM_CR1_CEN;
 }
 void TurretLeft(void){
