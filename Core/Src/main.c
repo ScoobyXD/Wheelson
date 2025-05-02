@@ -137,7 +137,8 @@ void TurretMotors_Config(void){
 	//TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Enable preload register. (. TIMx_CCR1 preload value is loaded in the active register at each update event)
 
 	//TIM1->PSC = 0; //so we keep clock at 4mhz (default for APB1) and not divide it by anything. (x) x (0+1)
-	TIM1->ARR = 16384; //Max value is 16 bit width 65535. This is not Hz, its the auto-reloader's counter. So higher this is, the longer it takes to do 1 PWM cycle peak to peak.
+	//left right motor
+	TIM1->ARR = 65535; //Max value is 16 bit width 65535. This is not Hz, its the auto-reloader's counter. So higher this is, the longer it takes to do 1 PWM cycle peak to peak.
 	TIM1->CCR1 = 8192; //keep in mind CCR1 is channel 1, so CCR2 would be channel 2
 	TIM1->CCER |= TIM_CCER_CC1E;  // Enable CH1 output (Capture mode enable)
 	TIM1->BDTR |= TIM_BDTR_MOE;   // Main output enable (For advanced timers like TIM1/TIM8)
@@ -154,9 +155,10 @@ void TurretMotors_Config(void){
 	tmpreg = RCC->APB1ENR1;
 	UNUSED(tmpreg); //standard practice to delay after starting timer to give it time to start
 
+	//up down motor
 	TIM3->CCMR1 |= (6<<TIM_CCMR1_OC2M_Pos); //CCMR1 has configurations for both Ch1 and Ch2, this configures 0110 for Ch2, mode 1 which is upcounting TIM CNT < TIM CCR1
-	TIM3->ARR = 24768; //Auto reload value (marks the rising edge in PWM) Max value is 16 bit width, 65535
-	TIM3->CCR2 = 12384; //Set duty rate for Ch2
+	TIM3->ARR = 65535; //Auto reload value (marks the rising edge in PWM) Max value is 16 bit width, 65535
+	TIM3->CCR2 = 100; //Set duty rate for Ch2
 	TIM3->CCER |= TIM_CCER_CC2E; //enable ch2 output
 	//TIM3 is a general timer, not advanced like TIM1 or TIM 8 so no need for BDTR and MOE
 
