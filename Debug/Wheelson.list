@@ -27,25 +27,25 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   ALLOC
  11 .ARM.attributes 00000030  00000000  00000000  0000300c  2**0
                   CONTENTS, READONLY
- 12 .debug_info   0000446f  00000000  00000000  0000303c  2**0
+ 12 .debug_info   00004485  00000000  00000000  0000303c  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 13 .debug_abbrev 00000ef1  00000000  00000000  000074ab  2**0
+ 13 .debug_abbrev 00000f0a  00000000  00000000  000074c1  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 14 .debug_aranges 000005b0  00000000  00000000  000083a0  2**3
+ 14 .debug_aranges 000005b8  00000000  00000000  000083d0  2**3
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 15 .debug_rnglists 00000429  00000000  00000000  00008950  2**0
+ 15 .debug_rnglists 00000430  00000000  00000000  00008988  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 16 .debug_macro  000249f3  00000000  00000000  00008d79  2**0
+ 16 .debug_macro  000249f3  00000000  00000000  00008db8  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 17 .debug_line   00005623  00000000  00000000  0002d76c  2**0
+ 17 .debug_line   000056a3  00000000  00000000  0002d7ab  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 18 .debug_str    000e179c  00000000  00000000  00032d8f  2**0
+ 18 .debug_str    000e17a8  00000000  00000000  00032e4e  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 19 .comment      00000043  00000000  00000000  0011452b  2**0
+ 19 .comment      00000043  00000000  00000000  001145f6  2**0
                   CONTENTS, READONLY
- 20 .debug_frame  00001510  00000000  00000000  00114570  2**2
+ 20 .debug_frame  00001530  00000000  00000000  0011463c  2**2
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 21 .debug_line_str 0000005c  00000000  00000000  00115a80  2**0
+ 21 .debug_line_str 0000005c  00000000  00000000  00115b6c  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
 
 Disassembly of section .text:
@@ -98,7 +98,6 @@ int main(void)
   USART2_Config();
  80001dc:	f000 f9be 	bl	800055c <USART2_Config>
  80001e0:	2300      	movs	r3, #0
-
 }
  80001e2:	4618      	mov	r0, r3
  80001e4:	bd80      	pop	{r7, pc}
@@ -765,6 +764,9 @@ void TurretFire_Config(void){
 
 080006a2 <SystemClock_Config>:
 
+
+
+}
 void SystemClock_Config(void)
 {
  80006a2:	b580      	push	{r7, lr}

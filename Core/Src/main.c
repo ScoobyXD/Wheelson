@@ -21,7 +21,7 @@ void TurretUpDownDoNothing(void);
 void TurretLeftRightDoNothing(void);
 void TurretFireDoNothing(void);
 
-__IO uint32_t tmpreg;
+volatile uint32_t tmpreg;
 
 int main(void)
 {
@@ -30,7 +30,6 @@ int main(void)
   TurretMotors_Config();
   TurretFire_Config();
   USART2_Config();
-
 }
 
 void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by hardware even if function not in main.
@@ -203,6 +202,41 @@ void TurretFire_Config(void){
 	GPIOA->MODER |= GPIO_MODER_MODE5_0; //output mode 01
 }
 
+
+void I2C1_Config(void){
+	RCC->APB1ENR1 &= ~RCC_APB1ENR1_I2C1EN_Msk; //Enable I2C1 clock in APB1
+	RCC->APB1ENR1 |= RCC_APB1ENR1_I2C1EN;
+	tmpreg = RCC->APB1ENR1; //remember standard practice to give the clock some time to start
+	UNUSED(tmpreg);
+
+	RCC->AHB2ENR &= ~RCC_AHB2ENR_GPIOBEN_Msk; //All of the I2C1 pins are PB instead of PA, so we need to open PortB now
+	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN;
+
+	GPIOB->MODER |= GPIO_MODER_MODE8_1; //PB8 needs to be SCL so alternative function 10
+	GPIOB->MODER |= GPIO_MODER_MODE9_1; //PB9 needs to be SDA so alternative function 10
+
+	GPIOB->OTYPER |= GPIO_OTYPER_OT8; //PB8 output type open-drain
+	GPIOB->OTYPER |= GPIO_OTYPER_OT9; //PB9 output type open-drain
+
+	GPIOB->PUPDR |= GPIO_PUPDR_PUPD8_0; //PB8 pull-up register
+	GPIOB->PUPDR |= GPIO_PUPDR_PUPD9_0; //PB9 pull-up register
+
+	GPIOB->AFR[1] |= 0x4UL; 		//remember [0] is for pins 0-7 and [1] is for pins 8-15
+	GPIOB->AFR[1] |= (0x4UL << 4U); //when we look at the other datasheet, we find PortB PB8/9 I2C1_SCL and I2C1_SDA is in AF4, so 0100
+									// so in the AFR[1] register we push 0100 to bits 0-3 and 4-8 in AFRH.
+
+	RCC->APB1RSTR1 |= RCC_APB1RSTR1_I2C1RST; //im not sure why its recommended to reset, but I guess if we REALLY want to make sure, we reset
+	RCC->APB1RSTR1 &= ~RCC_APB1RSTR1_I2C1RST; //so we don't want to keep the register value as 1, or else it will constantly reset, we set it back to 0 to stop resetting.
+
+	I2C1->TIMINGR =
+	I2C1->CR1 = I2C_CR1_PE; //enable the I2C peripheral
+
+
+
+
+
+
+}
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
