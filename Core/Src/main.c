@@ -218,10 +218,10 @@ void I2C1_Config(void){
 	GPIOB->OTYPER |= GPIO_OTYPER_OT8 | GPIO_OTYPER_OT9; //PB8/PB9 output type open-drain // Needed for I2C because open-drain allows multiple devices to share SDA/SCL safely.
 
 	GPIOB->PUPDR &= ~((GPIO_PUPDR_PUPD8_0) | ~(GPIO_PUPDR_PUPD9_0)); //PB8/PB9 pull-up register. We set output type to be open-drain, which means register will always go from 1 -> 0, so we need it constantly at pull-up.
-	GPIOB->PUPDR |= GPIO_PUPDR_PUPD8_0;
+	GPIOB->PUPDR |= (GPIO_PUPDR_PUPD8_0) | (GPIO_PUPDR_PUPD9_0);
 
 	GPIOB->OSPEEDR &= ~((GPIO_OSPEEDR_OSPEED8) | (GPIO_OSPEEDR_OSPEED9));
-	GPIOB->OSPEEDR |= (GPIO_OSPEEDR_OSPEED8) | (GPIO_OSPEEDR_OSPEED9);
+	GPIOB->OSPEEDR |= (GPIO_OSPEEDR_OSPEED8) | (GPIO_OSPEEDR_OSPEED9); //set speed to the highest (11)
 
 	I2C1->CR1 &= ~I2C_CR1_PE;
 	RCC->APB1RSTR1 |= RCC_APB1RSTR1_I2C1RST; //im not sure why its recommended to reset, but I guess if we REALLY want to make sure, we reset
