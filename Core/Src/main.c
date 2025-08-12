@@ -2,6 +2,7 @@
 #include "stm32l476xx.h"
 #include "stm32l4xx_hal_pwr_ex.h"
 #include "stdio.h"
+#include "time.h"
 #include "core_cm4.h"
 
 void SystemClock_Config(void);
@@ -9,8 +10,7 @@ void TurretMotors_Config(void);
 void USART2_Config(void);
 void TurretFire_Config(void);
 void NVIC_IRQn_Set(IRQn_Type IRQ);
-void USART2_IRQHandler(void); //must be called this because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
-
+void I2C1_Config(void);
 
 void TurretUp(void);
 void TurretDown(void);
@@ -21,7 +21,17 @@ void TurretUpDownDoNothing(void);
 void TurretLeftRightDoNothing(void);
 void TurretFireDoNothing(void);
 
+void USART2_IRQHandler(void); //must be called this because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
+void I2C_MPU9250_ReadandSend(void);
+void I2C_MPU9250_BurstRead(void);
+
+
 volatile uint32_t tmpreg;
+volatile int16_t MPU9250_Data;
+volatile int8_t MPU9250_Buffer[8];
+volatile uint16_t UART_Command;
+
+
 
 int main(void)
 {
@@ -30,37 +40,60 @@ int main(void)
   TurretMotors_Config();
   TurretFire_Config();
   USART2_Config();
+
+  while(1){
+	  for(volatile int i = 0; i < 8000000; i++);
+	  I2C_MPU9250();
+
+
+  }
+
+}
+
+void I2C_MPU9250_ReadandSend(){
+	//3B XOUT_H, 3C XOUT_L, 3D YOUT_H, 3E YOUT_L, 3F ZOUT_H, 40 ZOUT_L
+	//All-in-one read feature, bytes 0-5 Accelerometer, 6-7 Temperature, 8-13 Gyroscope.
+
+
+		//MPU9250_Buffer = I2C1->RXDR;
+		USART2->TDR = MPU9250_Buffer;
+
+
+	}
+}
+void I2C_MPU9250_BurstRead(){
+
 }
 
 void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by hardware even if function not in main.
 	if((USART2->ISR & USART_ISR_RXNE) != 0){ //register will be 1 if there is data in RDR register. Will be 0 if there is nothing.
-		volatile uint16_t RX_Value = USART2->RDR; // Reading RDR automatically clears the RXNE flag. Volatile because variable stores interrupt data.
+		UART_Command = USART2->RDR; // Reading RDR automatically clears the RXNE flag. Volatile because variable stores interrupt data.
 
-		if(RX_Value == 119){ //ASCII 'w' is 119
+		if(UART_Command == 119){ //ASCII 'w' is 119
 			TurretUp();
 		}
-		else if(RX_Value == 115){ //ASCII 's' is 115
+		else if(UART_Command == 115){ //ASCII 's' is 115
 			TurretDown();
 		}
-		else if(RX_Value == 97){ //ASCII 'a' is 97
+		else if(UART_Command == 97){ //ASCII 'a' is 97
 			TurretLeft();
 		}
-		else if(RX_Value == 100){ //ASCII 'd' is 100
+		else if(UART_Command == 100){ //ASCII 'd' is 100
 			TurretRight();
 		}
-		else if(RX_Value == 32){ //ASCII ' ' is 32
+		else if(UART_Command == 32){ //ASCII ' ' is 32
 			TurretFire();
 		}
-		else if(RX_Value == 121){ //ASCII 'y' is 121
+		else if(UART_Command == 121){ //ASCII 'y' is 121
 			TurretUpDownDoNothing();
 		}
-		else if(RX_Value == 120){ //ASCII 'x' is 120
+		else if(UART_Command == 120){ //ASCII 'x' is 120
 			TurretLeftRightDoNothing();
 		}
-		else if(RX_Value == 122){ //ASCII 'z' is 120
+		else if(UART_Command == 122){ //ASCII 'z' is 120
 			TurretFireDoNothing();
 		}
-		USART2->TDR = RX_Value;
+		USART2->TDR = UART_Command;
 	}
 }
 
@@ -231,7 +264,11 @@ void I2C1_Config(void){
 	I2C1->CR1 &= ~I2C_CR1_ANFOFF; // 0 = analog filter enabled
 	I2C1->CR1 &= ~I2C_CR1_DNF;  // DNF = 0
 
+	I2C1->TIMINGR |= (I2C_TIMINGR_PRESC) | (I2C_TIMINGR_SCLDEL)| (I2C_TIMINGR_SDADEL); // just timing presets the datasheet said I had to do
+
+	I2C1->CR1 |= (I2C_CR1_TXDMAEN) | (I2C_CR1_RXDMAEN); //Enable TX and RX to read using DMA
 	I2C1->CR1 |= I2C_CR1_PE; //enable the I2C peripheral
+
 }
 
 void SystemClock_Config(void)
