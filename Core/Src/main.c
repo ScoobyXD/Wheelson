@@ -5,6 +5,9 @@
 #include "time.h"
 #include "core_cm4.h"
 
+#define MPU9250_Address 0x68 //ADO 0
+#define MPU9250_PWRMGMT1 0x6B //PWR_MGMT_1
+
 void SystemClock_Config(void);
 void TurretMotors_Config(void);
 void USART2_Config(void);
@@ -25,7 +28,6 @@ void USART2_IRQHandler(void); //must be called this because written in interrupt
 void I2C_MPU9250_ReadandSend(void);
 void I2C_MPU9250_BurstRead(void);
 
-
 volatile uint32_t tmpreg;
 volatile int16_t MPU9250_Data;
 volatile int8_t MPU9250_Buffer[8];
@@ -41,25 +43,36 @@ int main(void)
   TurretFire_Config();
   USART2_Config();
 
+  //need to wake up MPU9250 from low power sleep mode
+  //In PWR_MGMT_1 (0x6B) make CYCLE =0, SLEEP = 0 and STANDBY = 0
+
+  //void I2C_Write(device address, register address, value)
+
   while(1){
 	  for(volatile int i = 0; i < 8000000; i++);
-	  I2C_MPU9250();
 
 
   }
 
 }
 
-void I2C_MPU9250_ReadandSend(){
+void I2C_Read(uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t data){
+
+
 	//3B XOUT_H, 3C XOUT_L, 3D YOUT_H, 3E YOUT_L, 3F ZOUT_H, 40 ZOUT_L
 	//All-in-one read feature, bytes 0-5 Accelerometer, 6-7 Temperature, 8-13 Gyroscope.
 
-
 		//MPU9250_Buffer = I2C1->RXDR;
-		USART2->TDR = MPU9250_Buffer;
+		//USART2->TDR = MPU9250_Buffer;
+}
 
+void I2C_Write(uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t data){
+	I2C1->CR2 |= 0x3U << I2C_CR2_NBYTES_Pos; //sets how many bytes to expect
+	I2C1->CR2 |= I2C_CR2_START | 0x00U << I2C_CR2_RD_WRN_Pos | SlaveAddress << I2C_CR2_SADD_Pos; // start and read to slave address
 
-	}
+	//must turn off the RXDMA and TXDMA to write lol
+	I2C1->CR1 &= ~(I2C_CR1_TXDMAEN | I2C_CR1_RXDMAEN);
+
 }
 void I2C_MPU9250_BurstRead(){
 
