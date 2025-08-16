@@ -284,13 +284,16 @@ void I2C1_Config(void){
 	I2C1->CR1 &= ~I2C_CR1_ANFOFF; // 0 = analog filter enabled
 	I2C1->CR1 &= ~I2C_CR1_DNF;  // DNF = 0 digital filter off
 
-	//Standard 100kHz mode
-	I2C1->TIMINGR |= //all of the below values are straight from the datasheet
-			0x1U << I2C_TIMINGR_PRESC_Pos |
-			0x13U << I2C_TIMINGR_SCLL_Pos |
-			0xFU << I2C_TIMINGR_SCLH_Pos |
-			0x2U << I2C_TIMINGR_SCLDEL_Pos|
-			0x4U << I2C_TIMINGR_SDADEL_Pos;
+	//Standard 100kHz mode //using the default I2C1SEL = 00 default clock setting 80MHz
+	I2C1->TIMINGR =
+			0x7U << I2C_TIMINGR_PRESC_Pos |
+			0x3U << I2C_TIMINGR_SCLDEL_Pos |
+			0x2U << I2C_TIMINGR_SDADEL_Pos |
+			0x31U << I2C_TIMINGR_SCLH_Pos |
+			0x31U << I2C_TIMINGR_SCLL_Pos;
+
+
+
 
 	I2C1->CR1 |= (I2C_CR1_TXDMAEN) | (I2C_CR1_RXDMAEN); //Enable TX and RX to read using DMA
 	I2C1->CR1 |= I2C_CR1_PE; //enable the I2C peripheral
