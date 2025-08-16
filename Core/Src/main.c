@@ -59,7 +59,7 @@ int main(void)
 
 void I2C_Read(uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t data){
 
-
+	CIRC = 1
 	//3B XOUT_H, 3C XOUT_L, 3D YOUT_H, 3E YOUT_L, 3F ZOUT_H, 40 ZOUT_L
 	//All-in-one read feature, bytes 0-5 Accelerometer, 6-7 Temperature, 8-13 Gyroscope.
 
@@ -75,6 +75,10 @@ void I2C_Write(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress,
 			((1U) << I2C_CR2_RD_WRN_Pos) |		//Write
 			((2U) << I2C_CR2_NBYTES_Pos) |		//2 bytes
 			I2C_CR2_AUTOEND;
+
+	//Using DMA so use DMA stuff
+	DMA1_Channel6->CCR |= DMA_CCR_EN;
+	DMA1_Channel6->CNDTR |= (0xFFFFUL << DMA_CNDTR_NDT_Pos)
 
 	I2CX->CR2 |= I2C_CR2_START;
 }
@@ -210,7 +214,6 @@ void TurretMotors_Config(void){
 	TIM3->CCR2 = 100; //Set duty rate for Ch2
 	TIM3->CCER |= TIM_CCER_CC2E; //enable ch2 output
 	//TIM3 is a general timer, not advanced like TIM1 or TIM 8 so no need for BDTR and MOE
-
 }
 
 void USART2_Config(void) {
@@ -252,7 +255,6 @@ void TurretFire_Config(void){
 	GPIOA->MODER |= GPIO_MODER_MODE5_0; //output mode 01
 }
 
-
 void I2C1_Config(void){
 	RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN; //All of the I2C1 pins are PB instead of PA, so we need to open PortB now. Also, do enable the port first before starting I2C
 	RCC->APB1ENR1 |= RCC_APB1ENR1_I2C1EN; //Enable I2C1 clock in APB1
@@ -273,15 +275,22 @@ void I2C1_Config(void){
 	GPIOB->OSPEEDR &= ~((GPIO_OSPEEDR_OSPEED8) | (GPIO_OSPEEDR_OSPEED9));
 	GPIOB->OSPEEDR |= (GPIO_OSPEEDR_OSPEED8) | (GPIO_OSPEEDR_OSPEED9); //set speed to the highest (11)
 
+	//Peripheral reset
 	I2C1->CR1 &= ~I2C_CR1_PE;
 	RCC->APB1RSTR1 |= RCC_APB1RSTR1_I2C1RST; //im not sure why its recommended to reset, but I guess if we REALLY want to make sure, we reset
 	RCC->APB1RSTR1 &= ~RCC_APB1RSTR1_I2C1RST; //so we don't want to keep the register value as 1, or else it will constantly reset, we set it back to 0 to stop resetting.
 
 	// Keep analog filter ON (default), digital filter DNF=0 (default)
 	I2C1->CR1 &= ~I2C_CR1_ANFOFF; // 0 = analog filter enabled
-	I2C1->CR1 &= ~I2C_CR1_DNF;  // DNF = 0
+	I2C1->CR1 &= ~I2C_CR1_DNF;  // DNF = 0 digital filter off
 
-	I2C1->TIMINGR |= (I2C_TIMINGR_PRESC_Pos) | (I2C_TIMINGR_SCLDEL)| (I2C_TIMINGR_SDADEL); // just timing presets the datasheet said I had to do
+	//Standard 100kHz mode
+	I2C1->TIMINGR |= //all of the below values are straight from the datasheet
+			0x1U << I2C_TIMINGR_PRESC_Pos |
+			0x13U << I2C_TIMINGR_SCLL_Pos |
+			0xFU << I2C_TIMINGR_SCLH_Pos |
+			0x2U << I2C_TIMINGR_SCLDEL_Pos|
+			0x4U << I2C_TIMINGR_SDADEL_Pos;
 
 	I2C1->CR1 |= (I2C_CR1_TXDMAEN) | (I2C_CR1_RXDMAEN); //Enable TX and RX to read using DMA
 	I2C1->CR1 |= I2C_CR1_PE; //enable the I2C peripheral
@@ -289,60 +298,28 @@ void I2C1_Config(void){
 
 void DMA_Config(void){
 
-	//DMA1_Channel6 is TX,
+	//DMA1_Channel6 is I2C1TX,
 	DMA1_Channel6->CCR &= ~DMA_CCR_EN;
 	DMA1_Channel6->CPAR |= (uint32_t)&I2C1->TXDR;
 	DMA_Channel6->CCR |=
-			0x1UL << DMA_CCR_DIR_Pos | // 0x1 is read from memory
-			0x1UL << DMA_CCR_MINC_Pos | // increment memory per DMA write
-			DMA_CCR_PSIZE_1; // priority 2
+			0x1UL << DMA_CCR_DIR_Pos | //0x1 is read from memory
+			0x1UL << DMA_CCR_MINC_Pos | //increment memory per DMA write
+			DMA_CCR_PSIZE_1; //priority 2
+							 //also keep in mind that I2C TXDR and RXDR are 8 bits by default so you don't need to set peripheral/memory byte size
 
-
-	//DMA1_Channel7 is RX
+	//DMA1_Channel7 is I2C1RX
 	DMA1_Channel17->CCR &= ~DMA_CCR_EN;
 	DMA1_Channel17->CPAR |= (uint32_t)&I2C1->RXDR;
 	DMA1_Channel17->CCR |=
 			//0x0UL << DMA_CCR_DIR_Pos | //0x0 is read from peripheral but that is already the default so commented out
-			0x1UL << DMA_CCR_MINC_Pos | // increment memory per DMA read
-			DMA_CCR_PL_1; // priority 2
-
-
-
-
-
-
-
-
-			~(DMA_CCR_DIR_Msk |
-			  DMA_CCR_PSIZE_Msk |
-			  DMA_CCR_MSIZE_Msk |
-			  DMA_CCR_PL_Msk |
-			  DMA_CCR_EN_Msk);
-
-	DMA1_Channel6->CCR |=
-			0x0UL << DMA_CCR_DIR_Pos | //Reading from peripheral
-			0x3UL << DMA_CCR_PSIZE_Pos| //peripheral 3 byte size
-			0x3UL << DMA_CCR_MSIZE_Pos | //memory 3 byte size
-			0x3UL << DMA_CCR_PL_Pos | //priority very high
-			DMA_CCR_EN;
-
-	DMA1_Channel7->CCR &=\
-			~(DMA_CCR_DIR_Msk |
-			  DMA_CCR_PSIZE_Msk |
-			  DMA_CCR_MSIZE_Msk |
-			  DMA_CCR_PL_Msk |
-			  DMA_CCR_EN_Msk);
-
-	DMA1_Channel7->CCR |=\
-			0x0UL << DMA_CCR_DIR_Pos | //Reading from peripheral
-			0x3UL << DMA_CCR_PSIZE_Pos| //peripheral 3 byte size
-			0x3UL << DMA_CCR_MSIZE_Pos | //memory 3 byte size
-			0x3UL << DMA_CCR_PL_Pos | //priority very high
-			DMA_CCR_EN;
-
-	DMA1_Channel17->CPAR |=
+			0x1UL << DMA_CCR_MINC_Pos | //increment memory per DMA read
+			DMA_CCR_PL_1; //priority 2
 }
 
+
+
+
+// I did not write the stuff below
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
