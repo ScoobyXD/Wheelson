@@ -25,6 +25,7 @@ void TurretLeftRightDoNothing(void);
 void TurretFireDoNothing(void);
 
 void USART2_IRQHandler(void); //must be called this because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
+void I2C_Write(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t data);
 void I2C_MPU9250_ReadandSend(void);
 void I2C_MPU9250_BurstRead(void);
 
@@ -66,13 +67,16 @@ void I2C_Read(uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t data){
 		//USART2->TDR = MPU9250_Buffer;
 }
 
-void I2C_Write(uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t data){
-	I2C1->CR2 |= 0x3U << I2C_CR2_NBYTES_Pos; //sets how many bytes to expect
-	I2C1->CR2 |= I2C_CR2_START | 0x00U << I2C_CR2_RD_WRN_Pos | SlaveAddress << I2C_CR2_SADD_Pos; // start and read to slave address
+void I2C_Write(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t data){
 
-	//must turn off the RXDMA and TXDMA to write lol
-	I2C1->CR1 &= ~(I2C_CR1_TXDMAEN | I2C_CR1_RXDMAEN);
+	//double check what would happen if you don't have uint32_t here, apparently without it wont know supposed to be 32 bit
+	I2CX->CR2 =
+			((uint32_t) SlaveAddress << 1U) |	//SADD[7:1]
+			((1U) << I2C_CR2_RD_WRN_Pos) |		//Write
+			((2U) << I2C_CR2_NBYTES_Pos) |		//2 bytes
+			I2C_CR2_AUTOEND;
 
+	I2CX->CR2 |= I2C_CR2_START;
 }
 void I2C_MPU9250_BurstRead(){
 
@@ -255,16 +259,16 @@ void I2C1_Config(void){
 	tmpreg = RCC->APB1ENR1; //remember standard practice to give the clock some time to start
 	UNUSED(tmpreg);
 
-	GPIOB->MODER &= ~((GPIO_MODER_MODE8_1) | (GPIO_MODER_MODE9_1)); //PB8 needs to be SCL so alternative function 10 //PB9 needs to be SDA so alternative function 10
-	GPIOB->MODER |= (GPIO_MODER_MODE8_1) | (GPIO_MODER_MODE9_1); //PB8/PB9 needs to be SCL so alternative function 10
+	GPIOB->MODER &= ~(GPIO_MODER_MODE8_1 | GPIO_MODER_MODE9_1); //PB8 needs to be SCL so alternative function 10 //PB9 needs to be SDA so alternative function 10
+	GPIOB->MODER |= GPIO_MODER_MODE8_1 | GPIO_MODER_MODE9_1; //PB8/PB9 needs to be SCL so alternative function 10
 
-	GPIOB->AFR[1] &= ~((0x4UL << 0) | (0x4UL << 4U)); //remember [0] is for pins 0-7 and [1] is for pins 8-15
+	GPIOB->AFR[1] &= ~((0xFUL << 0) | (0xFUL << 4U)); //remember [0] is for pins 0-7 and [1] is for pins 8-15
 	GPIOB->AFR[1] |= (0x4UL << 0) | (0x4UL << 4U);  //when we look at the other datasheet, we find PortB PB8/9 I2C1_SCL and I2C1_SDA is in AF4, so 0100												// so in the AFR[1] register we push 0100 to bits 0-3 and 4-8 in AFRH.
 
 	GPIOB->OTYPER |= GPIO_OTYPER_OT8 | GPIO_OTYPER_OT9; //PB8/PB9 output type open-drain // Needed for I2C because open-drain allows multiple devices to share SDA/SCL safely.
 
-	GPIOB->PUPDR &= ~((GPIO_PUPDR_PUPD8_0) | ~(GPIO_PUPDR_PUPD9_0)); //PB8/PB9 pull-up register. We set output type to be open-drain, which means register will always go from 1 -> 0, so we need it constantly at pull-up.
-	GPIOB->PUPDR |= (GPIO_PUPDR_PUPD8_0) | (GPIO_PUPDR_PUPD9_0);
+	GPIOB->PUPDR &= ~((GPIO_PUPDR_PUPD8_0) | (GPIO_PUPDR_PUPD9_0)); //PB8/PB9 pull-up register. We set output type to be open-drain, which means register will always go from 1 -> 0, so we need it constantly at pull-up.
+	GPIOB->PUPDR |= (GPIO_PUPDR_PUPD8_0) | (GPIO_PUPDR_PUPD9_0); //(Internal pull-ups are weak for I²C; external 2.2–4.7 kΩ pull-ups on SDA/SCL are strongly recommended.)????
 
 	GPIOB->OSPEEDR &= ~((GPIO_OSPEEDR_OSPEED8) | (GPIO_OSPEEDR_OSPEED9));
 	GPIOB->OSPEEDR |= (GPIO_OSPEEDR_OSPEED8) | (GPIO_OSPEEDR_OSPEED9); //set speed to the highest (11)
@@ -277,11 +281,66 @@ void I2C1_Config(void){
 	I2C1->CR1 &= ~I2C_CR1_ANFOFF; // 0 = analog filter enabled
 	I2C1->CR1 &= ~I2C_CR1_DNF;  // DNF = 0
 
-	I2C1->TIMINGR |= (I2C_TIMINGR_PRESC) | (I2C_TIMINGR_SCLDEL)| (I2C_TIMINGR_SDADEL); // just timing presets the datasheet said I had to do
+	I2C1->TIMINGR |= (I2C_TIMINGR_PRESC_Pos) | (I2C_TIMINGR_SCLDEL)| (I2C_TIMINGR_SDADEL); // just timing presets the datasheet said I had to do
 
 	I2C1->CR1 |= (I2C_CR1_TXDMAEN) | (I2C_CR1_RXDMAEN); //Enable TX and RX to read using DMA
 	I2C1->CR1 |= I2C_CR1_PE; //enable the I2C peripheral
+}
 
+void DMA_Config(void){
+
+	//DMA1_Channel6 is TX,
+	DMA1_Channel6->CCR &= ~DMA_CCR_EN;
+	DMA1_Channel6->CPAR |= (uint32_t)&I2C1->TXDR;
+	DMA_Channel6->CCR |=
+			0x1UL << DMA_CCR_DIR_Pos | // 0x1 is read from memory
+			0x1UL << DMA_CCR_MINC_Pos | // increment memory per DMA write
+			DMA_CCR_PSIZE_1; // priority 2
+
+
+	//DMA1_Channel7 is RX
+	DMA1_Channel17->CCR &= ~DMA_CCR_EN;
+	DMA1_Channel17->CPAR |= (uint32_t)&I2C1->RXDR;
+	DMA1_Channel17->CCR |=
+			//0x0UL << DMA_CCR_DIR_Pos | //0x0 is read from peripheral but that is already the default so commented out
+			0x1UL << DMA_CCR_MINC_Pos | // increment memory per DMA read
+			DMA_CCR_PL_1; // priority 2
+
+
+
+
+
+
+
+
+			~(DMA_CCR_DIR_Msk |
+			  DMA_CCR_PSIZE_Msk |
+			  DMA_CCR_MSIZE_Msk |
+			  DMA_CCR_PL_Msk |
+			  DMA_CCR_EN_Msk);
+
+	DMA1_Channel6->CCR |=
+			0x0UL << DMA_CCR_DIR_Pos | //Reading from peripheral
+			0x3UL << DMA_CCR_PSIZE_Pos| //peripheral 3 byte size
+			0x3UL << DMA_CCR_MSIZE_Pos | //memory 3 byte size
+			0x3UL << DMA_CCR_PL_Pos | //priority very high
+			DMA_CCR_EN;
+
+	DMA1_Channel7->CCR &=\
+			~(DMA_CCR_DIR_Msk |
+			  DMA_CCR_PSIZE_Msk |
+			  DMA_CCR_MSIZE_Msk |
+			  DMA_CCR_PL_Msk |
+			  DMA_CCR_EN_Msk);
+
+	DMA1_Channel7->CCR |=\
+			0x0UL << DMA_CCR_DIR_Pos | //Reading from peripheral
+			0x3UL << DMA_CCR_PSIZE_Pos| //peripheral 3 byte size
+			0x3UL << DMA_CCR_MSIZE_Pos | //memory 3 byte size
+			0x3UL << DMA_CCR_PL_Pos | //priority very high
+			DMA_CCR_EN;
+
+	DMA1_Channel17->CPAR |=
 }
 
 void SystemClock_Config(void)
