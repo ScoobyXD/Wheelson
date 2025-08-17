@@ -5,15 +5,18 @@
 #include "time.h"
 #include "core_cm4.h"
 
-#define MPU9250_Address 0x68 //ADO 0
-#define MPU9250_PWRMGMT1 0x6B //PWR_MGMT_1
+#define MPU9250_Address 0x68 //ADO 0 device address
+#define MPU9250_PWRMGMT1 0x6B //main power and clocking register on MPU9250
+#define DMA_IFCR_TXMASK (DMA_IFCR_CGIF6 | DMA_IFCR_CTCIF6 | DMA_IFCR_CHTIF6 | DMA_IFCR_CTEIF6) //global interrupt, transfer complete, halt transfer, and transfer error flags.
+#define DMA_ISR_TXTC DMA_ISR_TCIF6 // Transfer complete (TC) flag for channel 6
 
 void SystemClock_Config(void);
 void TurretMotors_Config(void);
-void USART2_Config(void);
 void TurretFire_Config(void);
-void NVIC_IRQn_Set(IRQn_Type IRQ);
+void NVIC_EnableIRQ(IRQn_Type IRQ);
+void USART2_Config(void);
 void I2C1_Config(void);
+void DMA1_Config(void);
 
 void TurretUp(void);
 void TurretDown(void);
@@ -24,15 +27,20 @@ void TurretUpDownDoNothing(void);
 void TurretLeftRightDoNothing(void);
 void TurretFireDoNothing(void);
 
-void USART2_IRQHandler(void); //must be called this because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
+void USART2_IRQHandler(void); //must be called this name because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
 void I2C_Write(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t data);
-void I2C_MPU9250_ReadandSend(void);
 void I2C_MPU9250_BurstRead(void);
+Result I2C_Sensor_Wake(I2C_TypeDef *I2CX, uint8_t DeviceAddress, uint8_t RegisterAddress, uint_8 Data);
 
 volatile uint32_t tmpreg;
 volatile int16_t MPU9250_Data;
 volatile int8_t MPU9250_Buffer[8];
 volatile uint16_t UART_Command;
+
+typedef enum {
+	FAIL,
+	SUCCESS
+} Result;
 
 
 
@@ -44,8 +52,10 @@ int main(void)
   TurretFire_Config();
   USART2_Config();
 
-  //need to wake up MPU9250 from low power sleep mode
-  //In PWR_MGMT_1 (0x6B) make CYCLE =0, SLEEP = 0 and STANDBY = 0
+  I2C_Sensor_Wake(I2C1, MPU9250_Address, MPU9250_PWRMGMT1, 0x01); //wake up MPU9250, the MPU9250 datasheet explicitly states what's needed to wake up, its 0x01
+  //I2C_Sensor_Wake(I2C1, X_Address, X, 0x0U); //wake up MPU9250
+  //I2C_Sensor_Wake(I2C1, X_Address, X, 0x0U); //wake up MPU9250
+
 
   //void I2C_Write(device address, register address, value)
 
@@ -57,7 +67,14 @@ int main(void)
 
 }
 
-void I2C_Read(uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t data){
+Result I2C_Sensor_Wake(I2C_TypeDef *I2CX, uint8_t DeviceAddress, uint8_t RegisterAddress, uint_8 Data){
+	//DMA requires a memory pointer, length, and a buffer
+	//Also, the buffer only needs the register in peripheral and the value (2 bytes), the I2C peripheral automatically sends device address from I2C1->CR2
+	static uint8_t SensorBuffer[2] = {RegisterAddress, Data};
+
+}
+
+void I2C_Read(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t Data){
 
 	CIRC = 1
 	//3B XOUT_H, 3C XOUT_L, 3D YOUT_H, 3E YOUT_L, 3F ZOUT_H, 40 ZOUT_L
@@ -67,22 +84,23 @@ void I2C_Read(uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t data){
 		//USART2->TDR = MPU9250_Buffer;
 }
 
-void I2C_Write(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t data){
+void I2C_Write(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t Data){
 
+	static uint8_t SensorBuffer[2] = {RegisterAddress, Data};
 	//double check what would happen if you don't have uint32_t here, apparently without it wont know supposed to be 32 bit
 	I2CX->CR2 =
-			((uint32_t) SlaveAddress << 1U) |	//SADD[7:1]
-			((1U) << I2C_CR2_RD_WRN_Pos) |		//Write
-			((2U) << I2C_CR2_NBYTES_Pos) |		//2 bytes
-			I2C_CR2_AUTOEND;
-
-	//Using DMA so use DMA stuff
-	DMA1_Channel6->CCR |= DMA_CCR_EN;
-	DMA1_Channel6->CNDTR |= (0xFFFFUL << DMA_CNDTR_NDT_Pos)
+			(uint32_t) SlaveAddress << 1U |	//SADD[7:1]
+			 0U << I2C_CR2_RD_WRN_Pos | //Write
+			 1U << I2C_CR2_NBYTES_Pos | //2 bytes
+			 0U << I2C_CR2_AUTOEND_Pos; //Autoend 0, no automatic stop, user decides what happens next, either stop, reload, and start
 
 	I2CX->CR2 |= I2C_CR2_START;
+	//Using DMA so use DMA stuff
+	DMA1_Channel6->CCR |= DMA_CCR_EN;
+	DMA1_Channel6->CNDTR |= (0xFFFFUL << DMA_CNDTR_NDT_Pos);
+
 }
-void I2C_MPU9250_BurstRead(){
+void I2C_BurstRead(){
 
 }
 
@@ -243,11 +261,11 @@ void USART2_Config(void) {
 	USART2->BRR = 4000000 / 9600; //4mHz/9600 baud. Gives 417hz/1 baud. UART frame is 1 bit every 417 APB1 clock cycles
 								   //we set M[1:0] as 00 so 1 start bit, 8 data bits, and 1 end bit. 10 x 417 is 4170 clock cycles per word
 								   //if 4mHz that mean each uart word should take about 1ms and each bit is 1x10^-4 s. Which is sort of slow?
-	NVIC_IRQn_Set(USART2_IRQn); //set up NVIC to allow USART2 interrupts. Now the hardware takes over so whenever RDR has data, the hardware will trigger the interrupt handler
+	NVIC_EnableIRQ(USART2_IRQn); //set up NVIC to allow USART2 interrupts. Now the hardware takes over so whenever RDR has data, the hardware will trigger the interrupt handler
 }
 
-void NVIC_IRQn_Set(IRQn_Type IRQ){ //doesnt work with negative IRQs (which are error interrupts) so don't use negative ones
-	NVIC->ISER[IRQ>>5UL] = 1<<(IRQ-(32*(IRQ>>5UL))); //ISER[1] = 1<6UL, there are 8 accessible elements and each element has 32 bits.
+void NVIC_EnableIRQ(IRQn_Type IRQ){ //doesnt work with negative IRQs (which are error interrupts) so don't use negative ones.
+	NVIC->ISER[IRQ>>5UL] = 1<<(IRQ % 32); //ISER[1] = 1<6UL, there are 8 accessible elements and each element has 32 bits.
 }
 
 void TurretFire_Config(void){
@@ -276,47 +294,48 @@ void I2C1_Config(void){
 	GPIOB->OSPEEDR |= (GPIO_OSPEEDR_OSPEED8) | (GPIO_OSPEEDR_OSPEED9); //set speed to the highest (11)
 
 	//Peripheral reset
-	I2C1->CR1 &= ~I2C_CR1_PE;
+	I2C1->CR1 &= ~I2C_CR1_PE; //turn off I2C1 control for now
 	RCC->APB1RSTR1 |= RCC_APB1RSTR1_I2C1RST; //im not sure why its recommended to reset, but I guess if we REALLY want to make sure, we reset
 	RCC->APB1RSTR1 &= ~RCC_APB1RSTR1_I2C1RST; //so we don't want to keep the register value as 1, or else it will constantly reset, we set it back to 0 to stop resetting.
 
 	// Keep analog filter ON (default), digital filter DNF=0 (default)
-	I2C1->CR1 &= ~I2C_CR1_ANFOFF; // 0 = analog filter enabled
-	I2C1->CR1 &= ~I2C_CR1_DNF;  // DNF = 0 digital filter off
+	I2C1->CR1 &= ~I2C_CR1_ANFOFF; // 0 = analog filter enabled (This removes very short glitches/spikes (typical <50 ns) that could be mistaken as edges. You almost always leave it enabled)
+	I2C1->CR1 &= ~I2C_CR1_DNF;  // DNF = 0 digital filter off (I guess similar role of filtering random stuff but digitally?
 
-	//Standard 100kHz mode //using the default I2C1SEL = 00 default clock setting 80MHz
-	I2C1->TIMINGR =
-			0x7U << I2C_TIMINGR_PRESC_Pos |
-			0x3U << I2C_TIMINGR_SCLDEL_Pos |
-			0x2U << I2C_TIMINGR_SDADEL_Pos |
-			0x31U << I2C_TIMINGR_SCLH_Pos |
-			0x31U << I2C_TIMINGR_SCLL_Pos;
-
-
-
+	//Standard I2C 100kHz mode using the default. I2C1SEL = 00 default clock setting 80MHz
+	I2C1->TIMINGR = //TIMINGR should be fully assigned, so = not |=
+			0x7U << I2C_TIMINGR_PRESC_Pos | //prescaler (7+1)/80 million = 0.0000001s or 100ns. So main clocks AHB APB at 80MHz 12.5ns per tick but I2C1 clock ticks every 100ns
+			0x3U << I2C_TIMINGR_SCLDEL_Pos | //delay between when the clock falling edge and the SDA change (3+1)ticks * 100ns = 400ns
+			0x2U << I2C_TIMINGR_SDADEL_Pos | //extra time SDA is held stable after SCL rising edge (2) * 100ns = 200ns
+			0x31U << I2C_TIMINGR_SCLH_Pos | //period the clock stays low (49+1)ticks * 100ns = 5us
+			0x31U << I2C_TIMINGR_SCLL_Pos; //period the clock stays high (49+1)ticks * 100ns = 5us
 
 	I2C1->CR1 |= (I2C_CR1_TXDMAEN) | (I2C_CR1_RXDMAEN); //Enable TX and RX to read using DMA
 	I2C1->CR1 |= I2C_CR1_PE; //enable the I2C peripheral
 }
 
-void DMA_Config(void){
+void DMA1_Config(void){
+	RCC->AHB1ENR = RCC_AHB1ENR_DMA1EN; //need to enable AHB1 bus for DMA1
 
 	//DMA1_Channel6 is I2C1TX,
-	DMA1_Channel6->CCR &= ~DMA_CCR_EN;
+	DMA1_Channel6->CCR &= ~DMA_CCR_EN; //make sure DMA is off while configuring
 	DMA1_Channel6->CPAR |= (uint32_t)&I2C1->TXDR;
-	DMA_Channel6->CCR |=
+	DMA1_Channel6->CCR |=
 			0x1UL << DMA_CCR_DIR_Pos | //0x1 is read from memory
 			0x1UL << DMA_CCR_MINC_Pos | //increment memory per DMA write
-			DMA_CCR_PSIZE_1; //priority 2
-							 //also keep in mind that I2C TXDR and RXDR are 8 bits by default so you don't need to set peripheral/memory byte size
+			DMA_CCR_PL_1; //priority 0x2
+						  //also keep in mind that I2C TXDR and RXDR are 8 bits by default so you don't need to set peripheral/memory byte size
 
 	//DMA1_Channel7 is I2C1RX
-	DMA1_Channel17->CCR &= ~DMA_CCR_EN;
-	DMA1_Channel17->CPAR |= (uint32_t)&I2C1->RXDR;
-	DMA1_Channel17->CCR |=
+	DMA1_Channel7->CCR &= ~DMA_CCR_EN;
+	DMA1_Channel7->CPAR |= (uint32_t)&I2C1->RXDR;
+	DMA1_Channel7->CCR |=
 			//0x0UL << DMA_CCR_DIR_Pos | //0x0 is read from peripheral but that is already the default so commented out
 			0x1UL << DMA_CCR_MINC_Pos | //increment memory per DMA read
-			DMA_CCR_PL_1; //priority 2
+			DMA_CCR_PL_1 | //priority 0x2
+			DMA_CCR_TCIE; //enable transfer complete interrupts
+
+	NVIC_EnableIRQ(DMA1_Channel7_IRQn); //enable data received interrupt for channel 7
 }
 
 
