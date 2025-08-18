@@ -37,15 +37,14 @@ void TurretUpDownDoNothing(void);
 void TurretLeftRightDoNothing(void);
 void TurretFireDoNothing(void);
 
-void USART2_IRQHandler(void); //must be called this name because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
-void I2C_Write(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t data);
-void I2C_MPU9250_BurstRead(void);
-
 typedef enum {
 	FAIL,
 	COMPLETE
 } Result;
 
+void USART2_IRQHandler(void); //must be called this name because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
+Result I2C_Write(I2C_TypeDef *I2CX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t Data);
+void I2C_MPU9250_BurstRead(void);
 Result I2C_Sensor_Wake(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t DeviceAddress, uint8_t RegisterAddress, uint8_t Data);
 
 static uint8_t SensorBuffer[2];
@@ -86,9 +85,7 @@ Result I2C_Sensor_Wake(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef
 	SensorBuffer[1] = RegisterAddress; //DMA requires a memory pointer, length, and a buffer
 	SensorBuffer[2] = Data; //Also, the buffer only needs the register in peripheral address and the value (2 bytes), the I2C peripheral automatically sends device address from I2C1->CR2
 
-	DMA_ChannelX->CCR |= DMA_CCR_EN; //enable the DMA channel
-	I2CX->CR2 |= I2C_CR2_START; //Generate start condition for I2C communication
-
+	return I2C_Write(I2C1, DMA1_Channel6, MPU9250_Address, MPU9250_PWRMGMT1, 0x01);//at 100kHz, its 10 us per clock tick so its 9 bits (1 byte and 1 ack bit) so (9 clock tick x 3 bytes) = 270 microseconds + Start (10 us) + Stop (10 us) = 290 us
 
 }
 
@@ -100,20 +97,22 @@ void I2C_Read(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, 
 		//USART2->TDR = MPU9250_Buffer;
 }
 
-void I2C_Write(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t Data){
+Result I2C_Write(I2C_TypeDef *I2CX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t Data){
 
 	//double check what would happen if you don't have uint32_t here, apparently without it wont know supposed to be 32 bit
 	I2CX->CR2 =
 			(uint32_t) SlaveAddress << 1U |	//SADD[7:1]
 			 0U << I2C_CR2_RD_WRN_Pos | //Write
 			 1U << I2C_CR2_NBYTES_Pos | //2 bytes (out of 3, 1st byte slave address done by i2c, 2nd byte register address and 3rd byte data must be sent, so 2 out of 3 this code handles, 1st byte done by hardware
-			 0U << I2C_CR2_AUTOEND_Pos; //Autoend 0, no automatic stop, user decides what happens next, either stop, reload, and start. At the end of TX will get a TC (transfer complete) flag ISR
+			 I2C_CR2_AUTOEND; //Autoend 1, After the NBYTES transfer is finished, the hardware automatically issues a STOP condition on the bus with I2C_ISR
 
-	I2CX->CR2 |= I2C_CR2_START;
-	//Using DMA so use DMA stuff
-	DMA1_Channel6->CCR |= DMA_CCR_EN;
-	DMA1_Channel6->CNDTR |= (0xFFFFUL << DMA_CNDTR_NDT_Pos);
+	DMA_ChannelX->CCR |= DMA_CCR_EN; //enable the DMA channel
+	I2CX->CR2 |= I2C_CR2_START; //Generate start condition for I2C communication
 
+	if((I2CX->ISR & (I2C_ISR_NACKF | I2C_ISR_STOPF)) != 0){ //as long as there are no error flags
+		 return 1;//we did Autoend 1, so the hardware takes care of automatic stops, we don't need to take care of
+		}
+	return 0;
 }
 void I2C_BurstRead(){
 
@@ -358,6 +357,9 @@ void DMA1_Config(void){
 	NVIC_EnableIRQ(DMA1_Channel7_IRQn); //enable data received interrupt for channel 7
 }
 
+void TurnSystemOff(void){
+	I2C1->CR1 &= ~I2C_CR1_PE; //turn I2C1 off, which clears a bunch of flags in ISR
+}
 
 
 
