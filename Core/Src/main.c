@@ -9,8 +9,8 @@
 #define MPU9250_PWRMGMT1 0x6B //main power and clocking register on MPU9250
 #define DMA1_I2C1_TX DMA1_Channel6 //from datasheet, I2C1 is in DMA1 channel 6
 #define DMA_ISR_TXTC DMA_ISR_TCIF6 //transfer complete interrupt flag
-#define DMA_IFCR_TXMASK (DMA_IFCR_CGIF6 | DMA_IFCR_CTCIF6 | DMA_IFCR_CHTIF6 | DMA_IFCR_CTEIF6) //global interrupt, transfer complete, halt transfer, and transfer error flags.
-#define I2C_ICR_MASK (I2C_ICR_STOPCF | I2C_ICR_NACKCF | I2C_ICR_BERRCF | I2C_ICR_ARLOCF | I2C_ICR_OVRCF)
+#define DMA_IFCR_TXCLEAR 0x0FFFFFFF //clear all DMA IFCR flags
+#define I2C_ICR_CLEAR 0x3F38 //clear all flags in I2C ICR
 /*
  * I2C_ICR_STOPCF | //Clears the stop flag, which means a stop condition has been detected on the bus
  * I2C_ICR_NACKCF | //Clear the NACK flag, which appears when the receiver didn't acknowledge the byte
@@ -43,7 +43,7 @@ typedef enum {
 } Result;
 
 void USART2_IRQHandler(void); //must be called this name because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
-Result I2C_Write(I2C_TypeDef *I2CX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t Data);
+Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t Data);
 void I2C_MPU9250_BurstRead(void);
 Result I2C_Sensor_Wake(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t DeviceAddress, uint8_t RegisterAddress, uint8_t Data);
 
@@ -55,37 +55,25 @@ volatile uint16_t UART_Command;
 
 int main(void)
 {
-  HAL_Init();
-  SystemClock_Config();
-  TurretMotors_Config();
-  TurretFire_Config();
-  USART2_Config();
+	HAL_Init();
+	SystemClock_Config();
+	TurretMotors_Config();
+	TurretFire_Config();
+	USART2_Config();
 
-  I2C_Sensor_Wake(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_PWRMGMT1, 0x01); //wake up MPU9250, the MPU9250 datasheet explicitly states what's needed to wake up, its 0x01
-  //I2C_Sensor_Wake(I2C1, X_Address, X, 0x0U); //wake up MPU9250
-  //I2C_Sensor_Wake(I2C1, X_Address, X, 0x0U); //wake up MPU9250
+	I2C_Sensor_Wake(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_PWRMGMT1, 0x01); //wake up MPU9250, the MPU9250 datasheet explicitly states what's needed to wake up, its 0x01
 
+	while(1){
 
-  //void I2C_Write(device address, register address, value)
-
-  while(1){
-	  for(volatile int i = 0; i < 8000000; i++);
-
-
-  }
-
+	}
 }
 
 Result I2C_Sensor_Wake(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t DeviceAddress, uint8_t RegisterAddress, uint8_t Data){
 
-	// clear I2C interrupts and DMA flags before every TX
-	I2CX->ICR = I2C_ICR_MASK;//clear I2C ICR flags, if previous I2C attempt failed, then these flags will linger
-	DMAX->IFCR = DMA_IFCR_TXMASK; //clear DMA flags, interrupt flags live in the controller of the DMA1, not channel by channel
-
 	SensorBuffer[1] = RegisterAddress; //DMA requires a memory pointer, length, and a buffer
 	SensorBuffer[2] = Data; //Also, the buffer only needs the register in peripheral address and the value (2 bytes), the I2C peripheral automatically sends device address from I2C1->CR2
 
-	return I2C_Write(I2C1, DMA1_Channel6, MPU9250_Address, MPU9250_PWRMGMT1, 0x01);//at 100kHz, its 10 us per clock tick so its 9 bits (1 byte and 1 ack bit) so (9 clock tick x 3 bytes) = 270 microseconds + Start (10 us) + Stop (10 us) = 290 us
+	return I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_PWRMGMT1, 0x01);//at 100kHz, its 10 us per clock tick so its 9 bits (1 byte and 1 ack bit) so (9 clock tick x 3 bytes) = 270 microseconds + Start (10 us) + Stop (10 us) = 290 us
 
 }
 
@@ -97,23 +85,37 @@ void I2C_Read(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, 
 		//USART2->TDR = MPU9250_Buffer;
 }
 
-Result I2C_Write(I2C_TypeDef *I2CX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t Data){
+Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t Data){
 
-	//double check what would happen if you don't have uint32_t here, apparently without it wont know supposed to be 32 bit
+	I2CX->ICR = I2C_ICR_CLEAR; //clear out potential flags in I2C from the last TX
+	DMAX->IFCR = DMA_IFCR_TXCLEAR; //clear out potential flags in DMA from the last TX
+
+
 	I2CX->CR2 =
 			(uint32_t) SlaveAddress << 1U |	//SADD[7:1]
 			 0U << I2C_CR2_RD_WRN_Pos | //Write
-			 1U << I2C_CR2_NBYTES_Pos | //2 bytes (out of 3, 1st byte slave address done by i2c, 2nd byte register address and 3rd byte data must be sent, so 2 out of 3 this code handles, 1st byte done by hardware
+			 2U << I2C_CR2_NBYTES_Pos | //2 bytes (out of 3, 1st byte slave address done by i2c, 2nd byte register address and 3rd byte data must be sent, so 2 out of 3 this code handles, 1st byte done by hardware
 			 I2C_CR2_AUTOEND; //Autoend 1, After the NBYTES transfer is finished, the hardware automatically issues a STOP condition on the bus with I2C_ISR
 
+	I2CX->CR1 |= I2C_CR1_TXDMAEN; //enable DMA in TX
 	DMA_ChannelX->CCR |= DMA_CCR_EN; //enable the DMA channel
 	I2CX->CR2 |= I2C_CR2_START; //Generate start condition for I2C communication
 
-	if((I2CX->ISR & (I2C_ISR_NACKF | I2C_ISR_STOPF)) != 0){ //as long as there are no error flags
-		 return 1;//we did Autoend 1, so the hardware takes care of automatic stops, we don't need to take care of
-		}
-	return 0;
+	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ICR_STOPCF)) != 0){ //when all NBYTES are sent and ACKed, then hardware generates STOPF flag by interrupt. but also, a STOPF can be from anything including errors
+		for(volatile int i=0; i<38462; i++); //counter in case something gets stuck, whole I2C write and STOPF should take ~290 us (29 clock ticks on 100KHz I2C), so just count to 38462 for 80MHz APB bus, which equals 500us from 100 KHz I2C line
+	}
+
+	I2CX->CR1 &= ~I2C_CR1_TXDMAEN;
+	DMA_ChannelX->CCR &= ~DMA_CCR_EN;
+	I2CX->ICR = I2C_ICR_CLEAR;
+	DMAX->IFCR = DMA_IFCR_TXCLEAR;
+
+	if((I2CX->ISR & I2C_ISR_NACKF) != 0){
+		return 0;
+	}
+	return 1;
 }
+
 void I2C_BurstRead(){
 
 }
@@ -325,7 +327,7 @@ void I2C1_Config(void){
 			0x31U << I2C_TIMINGR_SCLL_Pos; //period the clock stays high (49+1)ticks * 100ns = 5us
 
 	I2C1->CR1 |= (I2C_CR1_TXDMAEN) | (I2C_CR1_RXDMAEN); //Enable TX and RX to read using DMA
-	I2C1->ICR = I2C_ICR_MASK; //clear I2C ICR masks
+	I2C1->ICR = I2C_ICR_CLEAR; //clear I2C ICR masks
 
 	I2C1->CR1 |= I2C_CR1_PE; //enable the I2C peripheral
 }
@@ -338,7 +340,7 @@ void DMA1_Config(void){
 	DMA1_Channel6->CPAR = (uint32_t)&I2C1->TXDR; //this is just the peripheral address that's loaded before it shoots out I2C data
 	DMA1_Channel6->CMAR = (uint32_t)&SensorBuffer; //sets the memory address to read from the 2 byte memory buffer we declared earlier
 	DMA1_Channel6->CNDTR = 2; //number of data registers: 2
-	DMA1->IFCR = DMA_IFCR_TXMASK; //clear out all the TX flags that could still be up
+	DMA1->IFCR = DMA_IFCR_TXCLEAR; //clear out all the TX flags that could still be up
 	DMA1_Channel6->CCR |=
 			0x01UL << DMA_CCR_DIR_Pos | //0x01 is read from memory
 			0x01UL << DMA_CCR_MINC_Pos | //increment memory per DMA write
