@@ -8,12 +8,20 @@
 #define MPU9250_Address 0x68 //ADO 0 device address
 #define MPU9250_PWRMGMT1 0x6B //main power and clocking register on MPU9250
 #define DMA_IFCR_TXMASK (DMA_IFCR_CGIF6 | DMA_IFCR_CTCIF6 | DMA_IFCR_CHTIF6 | DMA_IFCR_CTEIF6) //global interrupt, transfer complete, halt transfer, and transfer error flags.
+#define I2C_ICR_MASK (I2C_ICR_STOPCF | I2C_ICR_NACKCF | I2C_ICR_BERRCF | I2C_ICR_ARLOCF | I2C_ICR_OVRCF)
+/*
+ * I2C_ICR_STOPCF | //Clears the stop flag, which means a stop condition has been detected on the bus
+ * I2C_ICR_NACKCF | //Clear the NACK flag, which appears when the receiver didn't acknowledge the byte
+ * I2C_ICR_BERRCF | //Clear the bus error flag, which appears when there an error in the bus, maybe through electrical noise or misbehaving devices
+ * I2C_ICR_ARLOCF | //Clear the arbitration flag, which appears when two masters try to control the bus (arbitration is resolving disputes)
+ * I2C_ICR_OVRCF) //Overrun/underrun flag clear, which appears when data was lost because software/DMA didn't keep up)
+ */
 #define DMA_ISR_TXTC DMA_ISR_TCIF6 // Transfer complete (TC) flag for channel 6
 
 void SystemClock_Config(void);
 void TurretMotors_Config(void);
 void TurretFire_Config(void);
-void NVIC_EnableIRQ(IRQn_Type IRQ);
+void NVIC_SetIRQ(IRQn_Type IRQ);
 void USART2_Config(void);
 void I2C1_Config(void);
 void DMA1_Config(void);
@@ -30,19 +38,19 @@ void TurretFireDoNothing(void);
 void USART2_IRQHandler(void); //must be called this name because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
 void I2C_Write(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t data);
 void I2C_MPU9250_BurstRead(void);
-Result I2C_Sensor_Wake(I2C_TypeDef *I2CX, uint8_t DeviceAddress, uint8_t RegisterAddress, uint_8 Data);
 
+typedef enum {
+	FAIL,
+	COMPLETE
+} Result;
+
+Result I2C_Sensor_Wake(I2C_TypeDef *I2CX, uint8_t DeviceAddress, uint8_t RegisterAddress, uint8_t Data);
+
+static uint8_t SensorBuffer[2];
 volatile uint32_t tmpreg;
 volatile int16_t MPU9250_Data;
 volatile int8_t MPU9250_Buffer[8];
 volatile uint16_t UART_Command;
-
-typedef enum {
-	FAIL,
-	SUCCESS
-} Result;
-
-
 
 int main(void)
 {
@@ -67,11 +75,21 @@ int main(void)
 
 }
 
-Result I2C_Sensor_Wake(I2C_TypeDef *I2CX, uint8_t DeviceAddress, uint8_t RegisterAddress, uint_8 Data){
+Result I2C_Sensor_Wake(I2C_TypeDef *I2CX, uint8_t DeviceAddress, uint8_t RegisterAddress, uint8_t Data){
+
 	//DMA requires a memory pointer, length, and a buffer
 	//Also, the buffer only needs the register in peripheral and the value (2 bytes), the I2C peripheral automatically sends device address from I2C1->CR2
-	static uint8_t SensorBuffer[2] = {RegisterAddress, Data};
+	SensorBuffer[1] = RegisterAddress;
+	SensorBuffer[2] = Data;
 
+	I2CX->ICR = //clear the below flags, if previous I2C attempt failed, then these flags will linger
+			I2C_ICR_STOPCF | //Clears the stop flag, which means a stop condition has been detected on the bus
+			I2C_ICR_NACKCF | //Clear the NACK flag, which appears when the receiver didn't acknowledge the byte
+			I2C_ICR_BERRCF | //Clear the bus error flag, which appears when there an error in the bus, maybe through electrical noise or misbehaving devices
+			I2C_ICR_ARLOCF | //Clear the arbitration flag, which appears when two masters try to control the bus (arbitration is resolving disputes)
+			I2C_ICR_OVRCF; //Overrun/underrun flag clear, which appears when data was lost because software/DMA didn't keep up
+
+	I2CX->CMAR = &SensorBuffer[2];
 }
 
 void I2C_Read(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t Data){
@@ -261,10 +279,10 @@ void USART2_Config(void) {
 	USART2->BRR = 4000000 / 9600; //4mHz/9600 baud. Gives 417hz/1 baud. UART frame is 1 bit every 417 APB1 clock cycles
 								   //we set M[1:0] as 00 so 1 start bit, 8 data bits, and 1 end bit. 10 x 417 is 4170 clock cycles per word
 								   //if 4mHz that mean each uart word should take about 1ms and each bit is 1x10^-4 s. Which is sort of slow?
-	NVIC_EnableIRQ(USART2_IRQn); //set up NVIC to allow USART2 interrupts. Now the hardware takes over so whenever RDR has data, the hardware will trigger the interrupt handler
+	NVIC_SetIRQ(USART2_IRQn); //set up NVIC to allow USART2 interrupts. Now the hardware takes over so whenever RDR has data, the hardware will trigger the interrupt handler
 }
 
-void NVIC_EnableIRQ(IRQn_Type IRQ){ //doesnt work with negative IRQs (which are error interrupts) so don't use negative ones.
+void NVIC_SetIRQ(IRQn_Type IRQ){ //doesnt work with negative IRQs (which are error interrupts) so don't use negative ones.
 	NVIC->ISER[IRQ>>5UL] = 1<<(IRQ % 32); //ISER[1] = 1<6UL, there are 8 accessible elements and each element has 32 bits.
 }
 
@@ -319,7 +337,10 @@ void DMA1_Config(void){
 
 	//DMA1_Channel6 is I2C1TX,
 	DMA1_Channel6->CCR &= ~DMA_CCR_EN; //make sure DMA is off while configuring
-	DMA1_Channel6->CPAR |= (uint32_t)&I2C1->TXDR;
+	DMA1_Channel6->CPAR = (uint32_t)&I2C1->TXDR; //this is just the peripheral address that's loaded before it shoots out I2C data
+	DMA1_Channel6->CMAR = (uint32_t)&SensorBuffer; //2 byte memory buffer we declared earlier
+	DMA1_Channel6->CNDTR = 2; //number of data registers: 2
+	DMA1_Channel6->IFCR = DMA_IFCR_TXMASK; //clear out all the TX flags that could still be up
 	DMA1_Channel6->CCR |=
 			0x1UL << DMA_CCR_DIR_Pos | //0x1 is read from memory
 			0x1UL << DMA_CCR_MINC_Pos | //increment memory per DMA write
