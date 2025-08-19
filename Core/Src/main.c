@@ -19,6 +19,10 @@
  * I2C_ICR_OVRCF) //Overrun/underrun flag clear, which appears when data was lost because software/DMA didn't keep up)
  */
 #define DMA_ISR_TXTC DMA_ISR_TCIF6 // Transfer complete (TC) flag for channel 6
+#define MPU9250_SMPLRT_DIV 0x19
+#define MPU9250_Config_Register 0x1A
+
+
 
 void SystemClock_Config(void);
 void TurretMotors_Config(void);
@@ -77,6 +81,13 @@ Result I2C_Sensor_Wake(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef
 
 }
 
+Result MPU9250_Config(){
+	I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_Config_Register, 0x01); //set up gyroscope and temp rates in MPU9250 184z bandwidth, 2.9ms delay, 1kHz Fs (internal sampling frequency). For temp sensor 188Hz bandwidth and 1.9ms delay
+	I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_SMPLRT_DIV, 0x09); // 100Hz sample rate, SAMPLE_RATE= Internal_Sample_Rate / (1 + SMPLRT_DIV)
+
+
+}
+
 void I2C_Read(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t Data){
 	//3B XOUT_H, 3C XOUT_L, 3D YOUT_H, 3E YOUT_L, 3F ZOUT_H, 40 ZOUT_L
 	//All-in-one read feature, bytes 0-5 Accelerometer, 6-7 Temperature, 8-13 Gyroscope.
@@ -105,12 +116,12 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
 		for(volatile int i=0; i<38462; i++); //counter in case something gets stuck, whole I2C write and STOPF should take ~290 us (29 clock ticks on 100KHz I2C), so just count to 38462 for 80MHz APB bus, which equals 500us from 100 KHz I2C line
 	}
 
-	I2CX->CR1 &= ~I2C_CR1_TXDMAEN;
+	I2CX->CR1 &= ~I2C_CR1_TXDMAEN; //all this is hygiene
 	DMA_ChannelX->CCR &= ~DMA_CCR_EN;
 	I2CX->ICR = I2C_ICR_CLEAR;
 	DMAX->IFCR = DMA_IFCR_TXCLEAR;
 
-	if((I2CX->ISR & I2C_ISR_NACKF) != 0){
+	if((I2CX->ISR & I2C_ISR_NACKF) != 0){ //only the NACKF tells us forsure if there was a problem, STOPF only tells you if something is stopped
 		return 0;
 	}
 	return 1;
