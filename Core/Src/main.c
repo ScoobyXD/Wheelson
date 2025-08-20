@@ -47,10 +47,9 @@ typedef enum {
 } Result;
 
 void USART2_IRQHandler(void); //must be called this name because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
-Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t len);
+Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len);
 void I2C_MPU9250_BurstRead(void);
-Result I2C_Sensor_Wake(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t DeviceAddress, uint8_t RegisterAddress, uint8_t len, uint8_t Data);
-
+Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress);
 static uint8_t WriteBuffer[32];
 static uint8_t ReadBuffer[32];
 volatile uint32_t tmpreg;
@@ -66,31 +65,38 @@ int main(void)
 	TurretFire_Config();
 	USART2_Config();
 
-	while(1){
-
+	if((MPU9250_Config(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_SMPLRT_DIV)) == FAIL){
+		//TXUART the fail to laptop
 	}
 }
 
-void ResetBuffer(uint8_t *WriteBuffer[32], uint8_t len){
-	for(uint8_t i=0; i<len; i++){
-		WriteBuffer[i] = 0;
+void ResetBuffer(uint8_t *Buffer, uint8_t len){
+	if(len <= 32){
+		for(uint8_t i=0; i<len; i++){
+			Buffer[i] = 0;
+		}
 	}
 }
 
-Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t DeviceAddress, uint8_t RegisterAddress, uint8_t len){
+Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress){
 
 	WriteBuffer[0] = RegisterAddress; //DMA requires a memory pointer, length, and a buffer //Also, the buffer only needs the register in peripheral address and the value (2 bytes), the I2C peripheral automatically sends device address from I2C1->CR2
 	WriteBuffer[1] = 0x01; //wake up MPU9250
-	I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_PWRMGMT1, 2);//wake up MPU_9250 //at 100kHz, its 10 us per clock tick so its 9 bits (1 byte and 1 ack bit) so (9 clock tick x 3 bytes) = 270 microseconds + Start (10 us) + Stop (10 us) = 290 us
+	if((I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, 2)) == COMPLETE){ //wake up MPU_9250 //at 100kHz, its 10 us per clock tick so its 9 bits (1 byte and 1 ack bit) so (9 clock tick x 3 bytes) = 270 microseconds + Start (10 us) + Stop (10 us) = 290 us
 
-	WriteBuffer[1] = 0x09; // 100Hz sample rate, SAMPLE_RATE= Internal_Sample_Rate / (1 + SMPLRT_DIV)
-	WriteBuffer[2] = 0x01; //increments to CONFIG //set up gyroscope and temp rates in MPU9250 184z bandwidth, 2.9ms delay, 1kHz Fs (internal sampling frequency). For temp sensor 188Hz bandwidth and 1.9ms delay
-	I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_SMPLRT_DIV, 3);
+		WriteBuffer[1] = 0x09; // 100Hz sample rate, SAMPLE_RATE= Internal_Sample_Rate / (1 + SMPLRT_DIV)
+		WriteBuffer[2] = 0x01; //increments to CONFIG //set up gyroscope and temp rates in MPU9250 184z bandwidth, 2.9ms delay, 1kHz Fs (internal sampling frequency). For temp sensor 188Hz bandwidth and 1.9ms delay
+		if((I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, 3)) == COMPLETE){
+			ResetBuffer(WriteBuffer,3); //hygiene
+			return COMPLETE;
+		}
+	}
 
-	ResetBuffer(*WriteBuffer, 3);
+	ResetBuffer(WriteBuffer,3); //hygiene
+	return FAIL;
 }
 
-void I2C_Read(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t Data){
+void I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t len){
 	//3B XOUT_H, 3C XOUT_L, 3D YOUT_H, 3E YOUT_L, 3F ZOUT_H, 40 ZOUT_L
 	//All-in-one read feature, bytes 0-5 Accelerometer, 6-7 Temperature, 8-13 Gyroscope.
 
@@ -98,7 +104,7 @@ void I2C_Read(I2C_TypeDef *I2CX, uint8_t SlaveAddress, uint8_t RegisterAddress, 
 		//USART2->TDR = MPU9250_Buffer;
 }
 
-Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t len){
+Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len){
 
 	I2CX->ICR = I2C_ICR_CLEAR; //clear out potential flags in I2C from the last TX
 	DMAX->IFCR = DMA_IFCR_TXCLEAR; //clear out potential flags in DMA from the last TX
@@ -125,9 +131,9 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
 	DMAX->IFCR = DMA_IFCR_TXCLEAR;
 
 	if((I2CX->ISR & I2C_ISR_NACKF) != 0){ //only the NACKF tells us forsure if there was a problem, STOPF only tells you if something is stopped
-		return 0;
+		return FAIL;
 	}
-	return 1;
+	return COMPLETE;
 }
 
 void I2C_BurstRead(){
