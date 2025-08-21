@@ -9,7 +9,7 @@
 #define MPU9250_PWRMGMT1 0x6Bu //main power and clocking register on MPU9250
 #define DMA1_I2C1_TX DMA1_Channel6 //from datasheet, I2C1 is in DMA1 channel 6
 #define DMA_ISR_TXTC DMA_ISR_TCIF6 //transfer complete interrupt flag
-#define DMA_IFCR_TXCLEAR 0x0FFFFFFF //clear all DMA IFCR flags
+#define DMA_IFCR_CLEAR 0x0FFFFFFF //clear all DMA IFCR flags
 #define I2C_ICR_CLEAR 0x3F38 //clear all flags in I2C ICR
 /*
  * I2C_ICR_STOPCF | //Clears the stop flag, which means a stop condition has been detected on the bus
@@ -48,6 +48,7 @@ typedef enum {
 
 void USART2_IRQHandler(void); //must be called this name because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
 Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len);
+Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len);
 void I2C_MPU9250_BurstRead(void);
 Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress);
 static uint8_t WriteBuffer[32];
@@ -96,39 +97,67 @@ Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef 
 	return FAIL;
 }
 
-void I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t len){
-	//3B XOUT_H, 3C XOUT_L, 3D YOUT_H, 3E YOUT_L, 3F ZOUT_H, 40 ZOUT_L
-	//All-in-one read feature, bytes 0-5 Accelerometer, 6-7 Temperature, 8-13 Gyroscope.
+Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len){
 
-		//MPU9250_Buffer = I2C1->RXDR;
-		//USART2->TDR = MPU9250_Buffer;
+	I2CX->ICR = I2C_ICR_CLEAR; //clear out potential flags in I2C from the last TX
+	DMAX->IFCR = DMA_IFCR_CLEAR; //clear out potential flags in DMA from the last TX
+
+
+	DMA_ChannelX->CCR |= DMA_CCR_EN;
+	I2CX->CR1 |= I2C_CR1_RXDMAEN;
+
+	I2CX->CR2 =
+			(0U << I2C_CR2_ADD10_Pos |
+			(uint32_t) SlaveAddress << 1U |
+			1U << I2C_CR2_RD_WRN_Pos |
+			len << I2C_CR2_NBYTES_Pos |
+			I2C_CR2_AUTOEND |
+			I2C_CR2_START);
+
+	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ISR_STOPF)) == 0){
+		for(volatile int i = 0; i<66400; i++){ //(14 bytes*8)+14 = 126 clock cycles + 40 clock ticks for random stuff = 166 x 800 = 132800 ticks on 80MHz bus, then /2 = 66400
+		}
+	}
+
+	DMA_ChannelX->CCR &= ~DMA_CCR_EN; //hygiene
+	I2CX->CR1 &= ~I2C_CR1_RXDMAEN;
+	I2CX->ICR = I2C_ICR_CLEAR;
+	DMAX->IFCR = DMA_IFCR_CLEAR;
+
+	if((I2CX->ISR & I2C_ICR_NACKCF) != 0){
+		return FAIL;
+	}
+	return COMPLETE;
+
+	//All-in-one read feature, bytes 0-5 Accelerometer, 6-7 Temperature, 8-13 Gyroscope.
 }
 
 Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len){
 
 	I2CX->ICR = I2C_ICR_CLEAR; //clear out potential flags in I2C from the last TX
-	DMAX->IFCR = DMA_IFCR_TXCLEAR; //clear out potential flags in DMA from the last TX
+	DMAX->IFCR = DMA_IFCR_CLEAR; //clear out potential flags in DMA from the last TX
 
 	DMA_ChannelX->CNDTR = len; //number of data registers: 2
 
 	I2CX->CR2 =
+			0U << I2C_CR2_ADD10_Pos | // So SADD can operate in 7 bit addressing mode
 			(uint32_t) SlaveAddress << 1U |	//SADD[7:1]
-			 0U << I2C_CR2_RD_WRN_Pos | //Write
-			 len << I2C_CR2_NBYTES_Pos | //the device address automatically done by hardware so not needed, use len
-			 I2C_CR2_AUTOEND; //Autoend 1, After the NBYTES transfer is finished, the hardware automatically issues a STOP condition on the bus with I2C_ISR
+			0UL << I2C_CR2_RD_WRN_Pos | //Write
+			len << I2C_CR2_NBYTES_Pos | //the device address automatically done by hardware so not needed, use len
+			I2C_CR2_AUTOEND; //Autoend 1, After the NBYTES transfer is finished, the hardware automatically issues a STOP condition on the bus with I2C_ISR
 
 	I2CX->CR1 |= I2C_CR1_TXDMAEN; //enable DMA in TX
 	DMA_ChannelX->CCR |= DMA_CCR_EN; //enable the DMA channel
 	I2CX->CR2 |= I2C_CR2_START; //Generate start condition for I2C communication. //remember, it will just fire whatever was in the buffer memory array
 
 	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ICR_STOPCF)) == 0){ //when all NBYTES are sent and ACKed, then hardware generates STOPF flag by interrupt. but also, a STOPF can be from anything including errors
-		for(volatile int i=0; i<38462; i++); //counter in case something gets stuck, whole I2C write and STOPF should take ~290 us (29 clock ticks on 100KHz I2C), so just count to 38462 for 80MHz APB bus, which equals 500us from 100 KHz I2C line
+		for(volatile int i=0; i<26800; i++); // (8x3)+3+ 40 (40 clock tick to set things up?) = 67 ticks on I2C 100kHz bus. 80MHz / 100kHz = 800 so 800 x 67 = 53600 clock ticks in 80MHz APB1 bus. Each for loop increment takes atleast 2 cycle each so really you need to count to 53600/2 = 26800
 	}
 
 	I2CX->CR1 &= ~I2C_CR1_TXDMAEN; //all this is hygiene
 	DMA_ChannelX->CCR &= ~DMA_CCR_EN;
 	I2CX->ICR = I2C_ICR_CLEAR;
-	DMAX->IFCR = DMA_IFCR_TXCLEAR;
+	DMAX->IFCR = DMA_IFCR_CLEAR;
 
 	if((I2CX->ISR & I2C_ISR_NACKF) != 0){ //only the NACKF tells us forsure if there was a problem, STOPF only tells you if something is stopped
 		return FAIL;
@@ -359,7 +388,7 @@ void DMA1_Config(void){
 	DMA1_Channel6->CCR &= ~DMA_CCR_EN; //make sure DMA is off while configuring
 	DMA1_Channel6->CPAR = (uint32_t)&I2C1->TXDR; //this is just the peripheral address that's loaded before it shoots out I2C data
 	DMA1_Channel6->CMAR = (uint32_t)&WriteBuffer; //sets the memory address to read from the 2 byte memory buffer we declared earlier
-	DMA1->IFCR = DMA_IFCR_TXCLEAR; //clear out all the TX flags that could still be up
+	DMA1->IFCR = DMA_IFCR_CLEAR; //clear out all the TX flags that could still be up
 	DMA1_CSELR->CSELR |= DMA_CSELR_C6S; //map DMA channel
 	DMA1_Channel6->CCR |=
 			0x01UL << DMA_CCR_DIR_Pos | //0x01 is read from memory
@@ -370,6 +399,8 @@ void DMA1_Config(void){
 	//DMA1_Channel7 is I2C1RX
 	DMA1_Channel7->CCR &= ~DMA_CCR_EN;
 	DMA1_Channel7->CPAR = (uint32_t)&I2C1->RXDR;
+	DMA1_Channel7->CMAR = (uint32_t)&ReadBuffer;
+	DMA1->IFCR = DMA_IFCR_CLEAR;
 	DMA1_CSELR->CSELR |= DMA_CSELR_C7S; //map DMA channel
 	DMA1_Channel7->CCR |=
 			//0x0UL << DMA_CCR_DIR_Pos | //0x0 is read from peripheral but that is already the default so commented out

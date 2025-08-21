@@ -27,25 +27,25 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   ALLOC
  11 .ARM.attributes 00000030  00000000  00000000  0000300c  2**0
                   CONTENTS, READONLY
- 12 .debug_info   000048a2  00000000  00000000  0000303c  2**0
+ 12 .debug_info   000048ae  00000000  00000000  0000303c  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 13 .debug_abbrev 00001007  00000000  00000000  000078de  2**0
+ 13 .debug_abbrev 00001007  00000000  00000000  000078ea  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 14 .debug_aranges 000005f8  00000000  00000000  000088e8  2**3
+ 14 .debug_aranges 000005f8  00000000  00000000  000088f8  2**3
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 15 .debug_rnglists 00000463  00000000  00000000  00008ee0  2**0
+ 15 .debug_rnglists 00000464  00000000  00000000  00008ef0  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 16 .debug_macro  00024d65  00000000  00000000  00009343  2**0
+ 16 .debug_macro  00024d65  00000000  00000000  00009354  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 17 .debug_line   0000593a  00000000  00000000  0002e0a8  2**0
+ 17 .debug_line   000059a9  00000000  00000000  0002e0b9  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 18 .debug_str    000e240e  00000000  00000000  000339e2  2**0
+ 18 .debug_str    000e240c  00000000  00000000  00033a62  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 19 .comment      00000043  00000000  00000000  00115df0  2**0
+ 19 .comment      00000043  00000000  00000000  00115e6e  2**0
                   CONTENTS, READONLY
- 20 .debug_frame  00001650  00000000  00000000  00115e34  2**2
+ 20 .debug_frame  00001650  00000000  00000000  00115eb4  2**2
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 21 .debug_line_str 0000005c  00000000  00000000  00117484  2**0
+ 21 .debug_line_str 0000005c  00000000  00000000  00117504  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
 
 Disassembly of section .text:
@@ -236,9 +236,9 @@ Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef 
  80002c0:	40005400 	.word	0x40005400
 
 080002c4 <I2C_Write>:
+	return COMPLETE;
 
-		//MPU9250_Buffer = I2C1->RXDR;
-		//USART2->TDR = MPU9250_Buffer;
+	//All-in-one read feature, bytes 0-5 Accelerometer, 6-7 Temperature, 8-13 Gyroscope.
 }
 
 Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len){
@@ -254,7 +254,7 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
  80002d2:	68fb      	ldr	r3, [r7, #12]
  80002d4:	f643 7238 	movw	r2, #16184	@ 0x3f38
  80002d8:	61da      	str	r2, [r3, #28]
-	DMAX->IFCR = DMA_IFCR_TXCLEAR; //clear out potential flags in DMA from the last TX
+	DMAX->IFCR = DMA_IFCR_CLEAR; //clear out potential flags in DMA from the last TX
  80002da:	68bb      	ldr	r3, [r7, #8]
  80002dc:	f06f 4270 	mvn.w	r2, #4026531840	@ 0xf0000000
  80002e0:	605a      	str	r2, [r3, #4]
@@ -265,21 +265,22 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
  80002e8:	605a      	str	r2, [r3, #4]
 
 	I2CX->CR2 =
+			0U << I2C_CR2_ADD10_Pos | // So SADD can operate in 7 bit addressing mode
 			(uint32_t) SlaveAddress << 1U |	//SADD[7:1]
  80002ea:	78fb      	ldrb	r3, [r7, #3]
  80002ec:	005a      	lsls	r2, r3, #1
-			 0U << I2C_CR2_RD_WRN_Pos | //Write
-			 len << I2C_CR2_NBYTES_Pos | //the device address automatically done by hardware so not needed, use len
+			0UL << I2C_CR2_RD_WRN_Pos | //Write
+			len << I2C_CR2_NBYTES_Pos | //the device address automatically done by hardware so not needed, use len
  80002ee:	f897 3020 	ldrb.w	r3, [r7, #32]
  80002f2:	041b      	lsls	r3, r3, #16
-			 0U << I2C_CR2_RD_WRN_Pos | //Write
+			0UL << I2C_CR2_RD_WRN_Pos | //Write
  80002f4:	4313      	orrs	r3, r2
-			 len << I2C_CR2_NBYTES_Pos | //the device address automatically done by hardware so not needed, use len
+			len << I2C_CR2_NBYTES_Pos | //the device address automatically done by hardware so not needed, use len
  80002f6:	f043 7200 	orr.w	r2, r3, #33554432	@ 0x2000000
 	I2CX->CR2 =
  80002fa:	68fb      	ldr	r3, [r7, #12]
  80002fc:	605a      	str	r2, [r3, #4]
-			 I2C_CR2_AUTOEND; //Autoend 1, After the NBYTES transfer is finished, the hardware automatically issues a STOP condition on the bus with I2C_ISR
+			I2C_CR2_AUTOEND; //Autoend 1, After the NBYTES transfer is finished, the hardware automatically issues a STOP condition on the bus with I2C_ISR
 
 	I2CX->CR1 |= I2C_CR1_TXDMAEN; //enable DMA in TX
  80002fe:	68fb      	ldr	r3, [r7, #12]
@@ -302,7 +303,7 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
 
 	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ICR_STOPCF)) == 0){ //when all NBYTES are sent and ACKed, then hardware generates STOPF flag by interrupt. but also, a STOPF can be from anything including errors
  8000322:	e00a      	b.n	800033a <I2C_Write+0x76>
-		for(volatile int i=0; i<38462; i++); //counter in case something gets stuck, whole I2C write and STOPF should take ~290 us (29 clock ticks on 100KHz I2C), so just count to 38462 for 80MHz APB bus, which equals 500us from 100 KHz I2C line
+		for(volatile int i=0; i<26800; i++); // (8x3)+3+ 40 (40 clock tick to set things up?) = 67 ticks on I2C 100kHz bus. 80MHz / 100kHz = 800 so 800 x 67 = 53600 clock ticks in 80MHz APB1 bus. Each for loop increment takes atleast 2 cycle each so really you need to count to 53600/2 = 26800
  8000324:	2300      	movs	r3, #0
  8000326:	617b      	str	r3, [r7, #20]
  8000328:	e002      	b.n	8000330 <I2C_Write+0x6c>
@@ -310,7 +311,7 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
  800032c:	3301      	adds	r3, #1
  800032e:	617b      	str	r3, [r7, #20]
  8000330:	697b      	ldr	r3, [r7, #20]
- 8000332:	f249 623d 	movw	r2, #38461	@ 0x963d
+ 8000332:	f646 02af 	movw	r2, #26799	@ 0x68af
  8000336:	4293      	cmp	r3, r2
  8000338:	ddf7      	ble.n	800032a <I2C_Write+0x66>
 	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ICR_STOPCF)) == 0){ //when all NBYTES are sent and ACKed, then hardware generates STOPF flag by interrupt. but also, a STOPF can be from anything including errors
@@ -337,7 +338,7 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
  800035e:	68fb      	ldr	r3, [r7, #12]
  8000360:	f643 7238 	movw	r2, #16184	@ 0x3f38
  8000364:	61da      	str	r2, [r3, #28]
-	DMAX->IFCR = DMA_IFCR_TXCLEAR;
+	DMAX->IFCR = DMA_IFCR_CLEAR;
  8000366:	68bb      	ldr	r3, [r7, #8]
  8000368:	f06f 4270 	mvn.w	r2, #4026531840	@ 0xf0000000
  800036c:	605a      	str	r2, [r3, #4]
