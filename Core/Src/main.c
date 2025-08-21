@@ -7,6 +7,9 @@
 
 #define MPU9250_Address 0x68u //ADO 0 device address
 #define MPU9250_PWRMGMT1 0x6Bu //main power and clocking register on MPU9250
+#define MPU9250_EXT_SENS_DATA_00 0x3B
+
+
 #define DMA1_I2C1_TX DMA1_Channel6 //from datasheet, I2C1 is in DMA1 channel 6
 #define DMA_ISR_TXTC DMA_ISR_TCIF6 //transfer complete interrupt flag
 #define DMA_IFCR_CLEAR 0x0FFFFFFF //clear all DMA IFCR flags
@@ -51,6 +54,9 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
 Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len);
 void I2C_MPU9250_BurstRead(void);
 Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress);
+Result I2C_BurstRead(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t RegisterAddress, uint8_t len);
+void ClearBuffer(uint8_t *Buffer, uint8_t len);
+
 static uint8_t WriteBuffer[32];
 static uint8_t ReadBuffer[32];
 volatile uint32_t tmpreg;
@@ -69,9 +75,12 @@ int main(void)
 	if((MPU9250_Config(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_SMPLRT_DIV)) == FAIL){
 		//TXUART the fail to laptop
 	}
+	if((I2C_BurstRead(I2C1, DMA1, DMA1_Channel7, MPU9250_Address, MPU9250_EXT_SENS_DATA_00)) == FAIL){
+
+	}
 }
 
-void ResetBuffer(uint8_t *Buffer, uint8_t len){
+void ClearBuffer(uint8_t *Buffer, uint8_t len){
 	if(len <= 32){
 		for(uint8_t i=0; i<len; i++){
 			Buffer[i] = 0;
@@ -88,21 +97,33 @@ Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef 
 		WriteBuffer[1] = 0x09; // 100Hz sample rate, SAMPLE_RATE= Internal_Sample_Rate / (1 + SMPLRT_DIV)
 		WriteBuffer[2] = 0x01; //increments to CONFIG //set up gyroscope and temp rates in MPU9250 184z bandwidth, 2.9ms delay, 1kHz Fs (internal sampling frequency). For temp sensor 188Hz bandwidth and 1.9ms delay
 		if((I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, 3)) == COMPLETE){
-			ResetBuffer(WriteBuffer,3); //hygiene
+			ClearBuffer(WriteBuffer,3); //hygiene
 			return COMPLETE;
 		}
 	}
 
-	ResetBuffer(WriteBuffer,3); //hygiene
+	ClearBuffer(WriteBuffer,3); //hygiene
 	return FAIL;
 }
+
+Result I2C_BurstRead(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t RegisterAddress, uint8_t len){
+	ReadBuffer[0] = RegisterAddress;
+
+
+	I2C_Read(I2C1, DMA1, DMA1_Channel7, RegisterAddress, 15);
+
+	ClearBuffer(ReadBuffer, len);
+
+}
+
+
 
 Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len){
 
 	I2CX->ICR = I2C_ICR_CLEAR; //clear out potential flags in I2C from the last TX
 	DMAX->IFCR = DMA_IFCR_CLEAR; //clear out potential flags in DMA from the last TX
 
-
+	DMA_ChannelX->CNDTR = len;
 	DMA_ChannelX->CCR |= DMA_CCR_EN;
 	I2CX->CR1 |= I2C_CR1_RXDMAEN;
 
@@ -137,18 +158,17 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
 	I2CX->ICR = I2C_ICR_CLEAR; //clear out potential flags in I2C from the last TX
 	DMAX->IFCR = DMA_IFCR_CLEAR; //clear out potential flags in DMA from the last TX
 
-	DMA_ChannelX->CNDTR = len; //number of data registers: 2
+	DMA_ChannelX->CNDTR = len; //number of data registers
+	DMA_ChannelX->CCR |= DMA_CCR_EN; //enable the DMA channel
+	I2CX->CR1 |= I2C_CR1_TXDMAEN; //enable DMA in TX
 
 	I2CX->CR2 =
 			0U << I2C_CR2_ADD10_Pos | // So SADD can operate in 7 bit addressing mode
 			(uint32_t) SlaveAddress << 1U |	//SADD[7:1]
 			0UL << I2C_CR2_RD_WRN_Pos | //Write
 			len << I2C_CR2_NBYTES_Pos | //the device address automatically done by hardware so not needed, use len
-			I2C_CR2_AUTOEND; //Autoend 1, After the NBYTES transfer is finished, the hardware automatically issues a STOP condition on the bus with I2C_ISR
-
-	I2CX->CR1 |= I2C_CR1_TXDMAEN; //enable DMA in TX
-	DMA_ChannelX->CCR |= DMA_CCR_EN; //enable the DMA channel
-	I2CX->CR2 |= I2C_CR2_START; //Generate start condition for I2C communication. //remember, it will just fire whatever was in the buffer memory array
+			I2C_CR2_AUTOEND | //Autoend 1, After the NBYTES transfer is finished, the hardware automatically issues a STOP condition on the bus with I2C_ISR
+			I2C_CR2_START;//Generate start condition for I2C communication. //remember, it will just fire whatever was in the buffer memory array
 
 	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ICR_STOPCF)) == 0){ //when all NBYTES are sent and ACKed, then hardware generates STOPF flag by interrupt. but also, a STOPF can be from anything including errors
 		for(volatile int i=0; i<26800; i++); // (8x3)+3+ 40 (40 clock tick to set things up?) = 67 ticks on I2C 100kHz bus. 80MHz / 100kHz = 800 so 800 x 67 = 53600 clock ticks in 80MHz APB1 bus. Each for loop increment takes atleast 2 cycle each so really you need to count to 53600/2 = 26800
@@ -163,10 +183,6 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
 		return FAIL;
 	}
 	return COMPLETE;
-}
-
-void I2C_BurstRead(){
-
 }
 
 void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by hardware even if function not in main.
