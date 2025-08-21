@@ -73,11 +73,17 @@ int main(void)
 	USART2_Config();
 
 	if((MPU9250_Config(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_SMPLRT_DIV)) == FAIL){
-		//TXUART the fail to laptop
-	}
-	if((I2C_BurstRead(I2C1, DMA1, DMA1_Channel7, MPU9250_Address, MPU9250_EXT_SENS_DATA_00)) == FAIL){
 
 	}
+
+	while(1){
+		if((I2C_BurstRead(I2C1, DMA1, DMA1_Channel7, MPU9250_Address, MPU9250_EXT_SENS_DATA_00)) == FAIL){
+			//TXUART the fail to laptop
+		}
+	}
+
+
+
 }
 
 void ClearBuffer(uint8_t *Buffer, uint8_t len){
@@ -136,6 +142,9 @@ Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_C
 			I2C_CR2_START);
 
 	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ISR_STOPF)) == 0){
+		if((DMA_ChannelX->CCR & DMA_CCR_TCIE) != 0){
+
+		}
 		for(volatile int i = 0; i<66400; i++){ //(14 bytes*8)+14 = 126 clock cycles + 40 clock ticks for random stuff = 166 x 800 = 132800 ticks on 80MHz bus, then /2 = 66400
 		}
 	}
@@ -401,23 +410,29 @@ void DMA1_Config(void){
 	RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN; //need to enable AHB1 bus for DMA1
 
 	//DMA1_Channel6 is I2C1TX,
+	DMA1->IFCR = DMA_IFCR_CLEAR; //clear out all the TX flags that could still be up
+	DMA1_CSELR->CSELR |= DMA_CSELR_C6S; //map DMA channel
+
 	DMA1_Channel6->CCR &= ~DMA_CCR_EN; //make sure DMA is off while configuring
 	DMA1_Channel6->CPAR = (uint32_t)&I2C1->TXDR; //this is just the peripheral address that's loaded before it shoots out I2C data
 	DMA1_Channel6->CMAR = (uint32_t)&WriteBuffer; //sets the memory address to read from the 2 byte memory buffer we declared earlier
-	DMA1->IFCR = DMA_IFCR_CLEAR; //clear out all the TX flags that could still be up
-	DMA1_CSELR->CSELR |= DMA_CSELR_C6S; //map DMA channel
+
 	DMA1_Channel6->CCR |=
 			0x01UL << DMA_CCR_DIR_Pos | //0x01 is read from memory
 			0x01UL << DMA_CCR_MINC_Pos | //increment memory per DMA write
-			DMA_CCR_PL_1; //priority 0x2
+			DMA_CCR_PL_1 | //priority 0x2
+			DMA_CCR_TCIE;
 						  //also keep in mind that I2C TXDR and RXDR are 8 bits by default so you don't need to set peripheral/memory byte size
 
 	//DMA1_Channel7 is I2C1RX
+	DMA1->IFCR = DMA_IFCR_CLEAR;
+	DMA1_CSELR->CSELR |= DMA_CSELR_C7S; //map DMA channel
+
 	DMA1_Channel7->CCR &= ~DMA_CCR_EN;
 	DMA1_Channel7->CPAR = (uint32_t)&I2C1->RXDR;
 	DMA1_Channel7->CMAR = (uint32_t)&ReadBuffer;
-	DMA1->IFCR = DMA_IFCR_CLEAR;
-	DMA1_CSELR->CSELR |= DMA_CSELR_C7S; //map DMA channel
+
+
 	DMA1_Channel7->CCR |=
 			//0x0UL << DMA_CCR_DIR_Pos | //0x0 is read from peripheral but that is already the default so commented out
 			0x1UL << DMA_CCR_MINC_Pos | //increment memory per DMA read
