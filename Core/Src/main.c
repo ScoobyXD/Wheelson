@@ -77,6 +77,7 @@ int main(void)
 	}
 
 	while(1){
+		//MPU9250 sample speed 100Hz, so this burst read will happen 100 times a second. 156 bits x 100 times a second = 15600 bits a second @100kHz means 156ms, each burst read being 156 bits and 1.56ms. From real-sensing to ReadBuffer ~1.56ms+2.9ms(delay) = ~4.46ms for gyroscope, ~1.59+1.9 = 3.49ms for temp
 		if((I2C_BurstRead(I2C1, DMA1, DMA1_Channel7, MPU9250_Address, MPU9250_EXT_SENS_DATA_00)) == FAIL){
 			//TXUART the fail to laptop
 		}
@@ -102,8 +103,11 @@ Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef 
 
 		WriteBuffer[1] = 0x09; // 100Hz sample rate, SAMPLE_RATE= Internal_Sample_Rate / (1 + SMPLRT_DIV)
 		WriteBuffer[2] = 0x01; //increments to CONFIG //set up gyroscope and temp rates in MPU9250 184z bandwidth, 2.9ms delay, 1kHz Fs (internal sampling frequency). For temp sensor 188Hz bandwidth and 1.9ms delay
-		if((I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, 3)) == COMPLETE){
-			ClearBuffer(WriteBuffer,3); //hygiene
+		WriteBuffer[3]= 0x08; //GYRO_CONFIG, set Fchoise_b[1:0] to = 00, then Fchoice is inverted to 11, GYRO_FS_SEL[1:0] set to 500 dps (degrees per second)
+		WriteBuffer[4] = 0x08; //ACCEL_CONFIG, +- 4g(01)
+
+		if((I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, 5)) == COMPLETE){
+			ClearBuffer(WriteBuffer,5); //hygiene
 			return COMPLETE;
 		}
 	}
@@ -113,6 +117,9 @@ Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef 
 }
 
 Result I2C_BurstRead(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t RegisterAddress, uint8_t len){
+
+	// if the MPU9250 samples at 100Hz, so every 10ms, 156bits go out, which should take 1.56ms each to finish, so the bus is free 8.44 ms every 10ms from 100Hz clock.
+
 	ReadBuffer[0] = RegisterAddress;
 
 
@@ -142,10 +149,7 @@ Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_C
 			I2C_CR2_START);
 
 	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ISR_STOPF)) == 0){
-		if((DMA_ChannelX->CCR & DMA_CCR_TCIE) != 0){
-
-		}
-		for(volatile int i = 0; i<66400; i++){ //(14 bytes*8)+14 = 126 clock cycles + 40 clock ticks for random stuff = 166 x 800 = 132800 ticks on 80MHz bus, then /2 = 66400
+		for(volatile int i = 0; i<66400; i++){ //(14 bytes*8)+14 = 126 clock cycles + 40 clock ticks for random stuff = 166 x 800 = 132800 ticks on 80MHz bus (1.7ms suuuper slow, wow 100kHz is not fast), then /2 = 66400
 		}
 	}
 
@@ -392,13 +396,15 @@ void I2C1_Config(void){
 	I2C1->CR1 &= ~I2C_CR1_ANFOFF; // 0 = analog filter enabled (This removes very short glitches/spikes (typical <50 ns) that could be mistaken as edges. You almost always leave it enabled)
 	I2C1->CR1 &= ~I2C_CR1_DNF;  // DNF = 0 digital filter off (I guess similar role of filtering random stuff but digitally?
 
-	//Standard I2C 100kHz mode using the default. I2C1SEL = 00 default clock setting 80MHz
+	RCC->CCIPR = RCC_CCIPR_I2C1SEL_1; //chose the HSI16 clock (16MHz), this is not the I2C SCL speed, its just the internal peripheral clock feeding the I2C timing generator
+
+	//Configured I2C for 400kHz mode
 	I2C1->TIMINGR = //TIMINGR should be fully assigned, so = not |=
-			0x7U << I2C_TIMINGR_PRESC_Pos | //prescaler (7+1)/80 million = 0.0000001s or 100ns. So main clocks AHB APB at 80MHz 12.5ns per tick but I2C1 clock ticks every 100ns
-			0x3U << I2C_TIMINGR_SCLDEL_Pos | //delay between when the clock falling edge and the SDA change (3+1)ticks * 100ns = 400ns
+			0x1U << I2C_TIMINGR_PRESC_Pos | //prescaler
+			0x3U << I2C_TIMINGR_SCLDEL_Pos | //delay between when the clock falling edge and the SDA change (4+1)ticks * 100ns = 400ns
 			0x2U << I2C_TIMINGR_SDADEL_Pos | //extra time SDA is held stable after SCL rising edge (2) * 100ns = 200ns
-			0x31U << I2C_TIMINGR_SCLH_Pos | //period the clock stays low (49+1)ticks * 100ns = 5us
-			0x31U << I2C_TIMINGR_SCLL_Pos; //period the clock stays high (49+1)ticks * 100ns = 5us
+			0x3U << I2C_TIMINGR_SCLH_Pos | //period the clock stays low (49+1)ticks * 100ns = 5us
+			0x9U << I2C_TIMINGR_SCLL_Pos; //period the clock stays high (49+1)ticks * 100ns = 5us
 
 	I2C1->CR1 |= (I2C_CR1_TXDMAEN) | (I2C_CR1_RXDMAEN); //Enable TX and RX to read using DMA
 	I2C1->ICR = I2C_ICR_CLEAR; //clear I2C ICR masks
@@ -420,8 +426,8 @@ void DMA1_Config(void){
 	DMA1_Channel6->CCR |=
 			0x01UL << DMA_CCR_DIR_Pos | //0x01 is read from memory
 			0x01UL << DMA_CCR_MINC_Pos | //increment memory per DMA write
-			DMA_CCR_PL_1 | //priority 0x2
-			DMA_CCR_TCIE;
+			DMA_CCR_PL_1; //priority 0x2
+
 						  //also keep in mind that I2C TXDR and RXDR are 8 bits by default so you don't need to set peripheral/memory byte size
 
 	//DMA1_Channel7 is I2C1RX
@@ -436,8 +442,7 @@ void DMA1_Config(void){
 	DMA1_Channel7->CCR |=
 			//0x0UL << DMA_CCR_DIR_Pos | //0x0 is read from peripheral but that is already the default so commented out
 			0x1UL << DMA_CCR_MINC_Pos | //increment memory per DMA read
-			DMA_CCR_PL_1 | //priority 0x2
-			DMA_CCR_TCIE; //enable transfer complete interrupts
+			DMA_CCR_PL_1; //priority 0x2
 
 	NVIC_EnableIRQ(DMA1_Channel7_IRQn); //enable data received interrupt for channel 7
 }
