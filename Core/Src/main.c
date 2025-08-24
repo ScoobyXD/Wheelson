@@ -54,7 +54,7 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
 Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len);
 void I2C_MPU9250_BurstRead(void);
 Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress);
-Result I2C_BurstRead(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t RegisterAddress, uint8_t len);
+Result I2C_BurstRead(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t len);
 void ClearBuffer(uint8_t *Buffer, uint8_t len);
 
 static uint8_t WriteBuffer[32];
@@ -78,7 +78,7 @@ int main(void)
 
 	while(1){
 		//MPU9250 sample speed 100Hz, so this burst read will happen 100 times a second. 156 bits x 100 times a second = 15600 bits a second @100kHz means 156ms, each burst read being 156 bits and 1.56ms. From real-sensing to ReadBuffer ~1.56ms+2.9ms(delay) = ~4.46ms for gyroscope, ~1.59+1.9 = 3.49ms for temp
-		if((I2C_BurstRead(I2C1, DMA1, DMA1_Channel7, MPU9250_Address, MPU9250_EXT_SENS_DATA_00)) == FAIL){
+		if((I2C_BurstRead(I2C1, DMA1, DMA1_Channel7, MPU9250_Address, MPU9250_EXT_SENS_DATA_00,14)) == FAIL){
 			//TXUART the fail to laptop
 		}
 	}
@@ -106,24 +106,32 @@ Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef 
 		WriteBuffer[3]= 0x08; //GYRO_CONFIG, set Fchoise_b[1:0] to = 00, then Fchoice is inverted to 11, GYRO_FS_SEL[1:0] set to 500 dps (degrees per second)
 		WriteBuffer[4] = 0x08; //ACCEL_CONFIG, +- 4g(01)
 
+		////////
+		// you might have done something wrong with the accel config
+
+		//Beware that you might need to write the XG,YG,ZG offsets to correct the zero-rate error/or bias
+		///////
+
 		if((I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, 5)) == COMPLETE){
 			ClearBuffer(WriteBuffer,5); //hygiene
 			return COMPLETE;
 		}
 	}
 
-	ClearBuffer(WriteBuffer,3); //hygiene
+	ClearBuffer(WriteBuffer,5); //hygiene
 	return FAIL;
 }
 
-Result I2C_BurstRead(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t RegisterAddress, uint8_t len){
+Result I2C_BurstRead(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t len){
 
 	// if the MPU9250 samples at 100Hz, so every 10ms, 156bits go out, which should take 1.56ms each to finish, so the bus is free 8.44 ms every 10ms from 100Hz clock.
 
+	WriteBuffer[0] = RegisterAddress;
+	I2C_Write(I2C1, DMA1, DMA1_Channel6, SlaveAddress, 1);
+	ClearBuffer(WriteBuffer, 1);
+
 	ReadBuffer[0] = RegisterAddress;
-
-
-	I2C_Read(I2C1, DMA1, DMA1_Channel7, RegisterAddress, 15);
+	I2C_Read(I2C1, DMA1, DMA1_Channel7, SlaveAddress, len);
 
 	ClearBuffer(ReadBuffer, len);
 
@@ -141,15 +149,16 @@ Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_C
 	I2CX->CR1 |= I2C_CR1_RXDMAEN;
 
 	I2CX->CR2 =
-			(0U << I2C_CR2_ADD10_Pos |
+			(0U << I2C_CR2_ADD10_Pos | // So SADD can operate in 7 bit addressing mode
 			(uint32_t) SlaveAddress << 1U |
 			1U << I2C_CR2_RD_WRN_Pos |
 			len << I2C_CR2_NBYTES_Pos |
-			I2C_CR2_AUTOEND |
+			0x0UL << I2C_CR2_AUTOEND_Pos | //autoend 0
+			0x0UL << I2C_CR2_RELOAD_Pos | //mark reload as 0, so you manually have to reset
 			I2C_CR2_START);
 
 	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ISR_STOPF)) == 0){
-		for(volatile int i = 0; i<66400; i++){ //(14 bytes*8)+14 = 126 clock cycles + 40 clock ticks for random stuff = 166 x 800 = 132800 ticks on 80MHz bus (1.7ms suuuper slow, wow 100kHz is not fast), then /2 = 66400
+		for(volatile int i = 0; i<(((8*len)+len+40)*200)/2; i++){ //(14 bytes*8)+14 = 126 clock cycles + 40 clock ticks for random stuff = 166 x 800 = 132800 ticks on 80MHz bus (1.7ms suuuper slow, wow 100kHz is not fast), then /2 (cuz 2 instructions for 1 increment) = 66400
 		}
 	}
 
@@ -161,7 +170,12 @@ Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_C
 	if((I2CX->ISR & I2C_ICR_NACKCF) != 0){
 		return FAIL;
 	}
+	else if ((I2CX->ICR & I2C_ISR_TC) != 0){
+		return COMPLETE;
+	}
 	return COMPLETE;
+
+
 
 	//All-in-one read feature, bytes 0-5 Accelerometer, 6-7 Temperature, 8-13 Gyroscope.
 }
@@ -184,7 +198,7 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
 			I2C_CR2_START;//Generate start condition for I2C communication. //remember, it will just fire whatever was in the buffer memory array
 
 	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ICR_STOPCF)) == 0){ //when all NBYTES are sent and ACKed, then hardware generates STOPF flag by interrupt. but also, a STOPF can be from anything including errors
-		for(volatile int i=0; i<26800; i++); // (8x3)+3+ 40 (40 clock tick to set things up?) = 67 ticks on I2C 100kHz bus. 80MHz / 100kHz = 800 so 800 x 67 = 53600 clock ticks in 80MHz APB1 bus. Each for loop increment takes atleast 2 cycle each so really you need to count to 53600/2 = 26800
+		for(volatile int i=0; i<(((8*len)+len+40)*200)/2; i++); // (8x3)+3+ 40 (40 clock tick to set things up?) = 67 ticks on I2C 100kHz bus. 80MHz / 400kHz = 200 so 200 x 67 = 53600 clock ticks in 80MHz APB1 bus. Each for loop increment takes atleast 2 cycle each so really you need to count to 53600/2 = 26800
 	}
 
 	I2CX->CR1 &= ~I2C_CR1_TXDMAEN; //all this is hygiene
