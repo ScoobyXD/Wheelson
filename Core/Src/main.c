@@ -77,7 +77,8 @@ int main(void)
 	}
 
 	while(1){
-		//MPU9250 sample speed 100Hz, so this burst read will happen 100 times a second. 156 bits x 100 times a second = 15600 bits a second @100kHz means 156ms, each burst read being 156 bits and 1.56ms. From real-sensing to ReadBuffer ~1.56ms+2.9ms(delay) = ~4.46ms for gyroscope, ~1.59+1.9 = 3.49ms for temp
+		//MPU9250 sample speed 100Hz, so this burst read will happen 100 times a second. 156 bits x 100 times a second = 15600 bits a second @400kHz means 156ms, each burst read being 156 bits and 1.56ms. From real-sensing to ReadBuffer ~1.56ms+2.9ms(delay) = ~4.46ms for gyroscope, ~1.59+1.9 = 3.49ms for temp
+		//All-in-one read feature, bytes 0-5 Accelerometer, 6-7 Temperature, 8-13 Gyroscope.
 		if((I2C_BurstRead(I2C1, DMA1, DMA1_Channel7, MPU9250_Address, MPU9250_EXT_SENS_DATA_00,14)) == FAIL){
 			//TXUART the fail to laptop
 		}
@@ -85,14 +86,6 @@ int main(void)
 
 
 
-}
-
-void ClearBuffer(uint8_t *Buffer, uint8_t len){
-	if(len <= 32){
-		for(uint8_t i=0; i<len; i++){
-			Buffer[i] = 0;
-		}
-	}
 }
 
 Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress){
@@ -103,22 +96,18 @@ Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef 
 
 		WriteBuffer[1] = 0x09; // 100Hz sample rate, SAMPLE_RATE= Internal_Sample_Rate / (1 + SMPLRT_DIV)
 		WriteBuffer[2] = 0x01; //increments to CONFIG //set up gyroscope and temp rates in MPU9250 184z bandwidth, 2.9ms delay, 1kHz Fs (internal sampling frequency). For temp sensor 188Hz bandwidth and 1.9ms delay
-		WriteBuffer[3]= 0x08; //GYRO_CONFIG, set Fchoise_b[1:0] to = 00, then Fchoice is inverted to 11, GYRO_FS_SEL[1:0] set to 500 dps (degrees per second)
+		WriteBuffer[3]= 0x08; //GYRO_CONFIG, set Fchoice_b[1:0] to = 00, then Fchoice is inverted to 11, GYRO_FS_SEL[1:0] set to 500 dps (degrees per second)
 		WriteBuffer[4] = 0x08; //ACCEL_CONFIG, +- 4g(01)
-
-		////////
-		// you might have done something wrong with the accel config
-
+		WriteBuffer[5] = 0x05; //ACCEL_CONFIG2 , 0x01 on ACCEL_FCHOICEb and 0x01 on A_DLPF_CFG, 218.1 3dB BW Hz, 1kHz, DLPF, 1.88ms, 300 ug/rtHz noise density?
 		//Beware that you might need to write the XG,YG,ZG offsets to correct the zero-rate error/or bias
-		///////
 
-		if((I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, 5)) == COMPLETE){
-			ClearBuffer(WriteBuffer,5); //hygiene
+		if((I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, 6)) == COMPLETE){
+			ClearBuffer(WriteBuffer,6); //hygiene
 			return COMPLETE;
 		}
 	}
 
-	ClearBuffer(WriteBuffer,5); //hygiene
+	ClearBuffer(WriteBuffer,6); //hygiene
 	return FAIL;
 }
 
@@ -132,12 +121,11 @@ Result I2C_BurstRead(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *
 
 	ReadBuffer[0] = RegisterAddress;
 	I2C_Read(I2C1, DMA1, DMA1_Channel7, SlaveAddress, len);
+	//have to store the data somewhere
 
 	ClearBuffer(ReadBuffer, len);
 
 }
-
-
 
 Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len){
 
@@ -153,13 +141,13 @@ Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_C
 			(uint32_t) SlaveAddress << 1U |
 			1U << I2C_CR2_RD_WRN_Pos |
 			len << I2C_CR2_NBYTES_Pos |
-			0x0UL << I2C_CR2_AUTOEND_Pos | //autoend 0
-			0x0UL << I2C_CR2_RELOAD_Pos | //mark reload as 0, so you manually have to reset
+			0x1UL << I2C_CR2_AUTOEND_Pos | //Autoend 1, After the NBYTES transfer is finished, the hardware automatically issues a STOP condition on the bus with I2C_ISR
 			I2C_CR2_START);
 
 	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ISR_STOPF)) == 0){
-		for(volatile int i = 0; i<(((8*len)+len+40)*200)/2; i++){ //(14 bytes*8)+14 = 126 clock cycles + 40 clock ticks for random stuff = 166 x 800 = 132800 ticks on 80MHz bus (1.7ms suuuper slow, wow 100kHz is not fast), then /2 (cuz 2 instructions for 1 increment) = 66400
-		}
+		//trade off between speed and reliability, dont count and risk something getting stuck and neither flags going off, or use CPU time to count
+		//decided to prioritize speed in for reads, if it gets stuck then flush i2c
+		//for(volatile int i = 0; i<(((8*len)+len+40)*200)/2; i++){} //(14 bytes*8)+14 = 126 clock cycles + 40 clock ticks for random stuff = 166 x 200 = 33200 ticks on 80MHz bus, then /2 (cuz 2 instructions for 1 increment) = 16600
 	}
 
 	DMA_ChannelX->CCR &= ~DMA_CCR_EN; //hygiene
@@ -170,14 +158,7 @@ Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_C
 	if((I2CX->ISR & I2C_ICR_NACKCF) != 0){
 		return FAIL;
 	}
-	else if ((I2CX->ICR & I2C_ISR_TC) != 0){
-		return COMPLETE;
-	}
 	return COMPLETE;
-
-
-
-	//All-in-one read feature, bytes 0-5 Accelerometer, 6-7 Temperature, 8-13 Gyroscope.
 }
 
 Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len){
@@ -194,11 +175,11 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
 			(uint32_t) SlaveAddress << 1U |	//SADD[7:1]
 			0UL << I2C_CR2_RD_WRN_Pos | //Write
 			len << I2C_CR2_NBYTES_Pos | //the device address automatically done by hardware so not needed, use len
-			I2C_CR2_AUTOEND | //Autoend 1, After the NBYTES transfer is finished, the hardware automatically issues a STOP condition on the bus with I2C_ISR
+			0x0UL << I2C_CR2_AUTOEND_Pos | //Autoend 0, need to stop the transfer by hand
+			0x0UL << I2C_CR2_RELOAD_Pos | //reload 0, so must be controlled by hand
 			I2C_CR2_START;//Generate start condition for I2C communication. //remember, it will just fire whatever was in the buffer memory array
 
-	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ICR_STOPCF)) == 0){ //when all NBYTES are sent and ACKed, then hardware generates STOPF flag by interrupt. but also, a STOPF can be from anything including errors
-		for(volatile int i=0; i<(((8*len)+len+40)*200)/2; i++); // (8x3)+3+ 40 (40 clock tick to set things up?) = 67 ticks on I2C 100kHz bus. 80MHz / 400kHz = 200 so 200 x 67 = 53600 clock ticks in 80MHz APB1 bus. Each for loop increment takes atleast 2 cycle each so really you need to count to 53600/2 = 26800
+	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ICR_STOPCF | I2C_ISR_TC)) == 0){ //when all NBYTES are sent and ACKed, then hardware generates STOPF flag by interrupt. but also, a STOPF can be from anything including errors
 	}
 
 	I2CX->CR1 &= ~I2C_CR1_TXDMAEN; //all this is hygiene
@@ -210,6 +191,20 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
 		return FAIL;
 	}
 	return COMPLETE;
+}
+
+void ClearBuffer(uint8_t *Buffer, uint8_t len){
+	if(len <= 32){
+		for(uint8_t i=0; i<len; i++){
+			Buffer[i] = 0;
+		}
+	}
+}
+
+void ClearStuckI2CBus(uint8_t *I2CX){
+	//stop peripheral
+	//Puill both SCL and SDA down for 9 clock cycles and restart peripheral
+	//I2CX->CR1 &= ~I2C_CR1_PE;
 }
 
 void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by hardware even if function not in main.
@@ -423,6 +418,9 @@ void I2C1_Config(void){
 	I2C1->CR1 |= (I2C_CR1_TXDMAEN) | (I2C_CR1_RXDMAEN); //Enable TX and RX to read using DMA
 	I2C1->ICR = I2C_ICR_CLEAR; //clear I2C ICR masks
 
+	NVIC_SetIRQ(I2C1_EV_IRQn); //enable interrupt events
+	NVIC_SetIRQ(I2C1_ER_IRQn); //enable interrupt errors
+
 	I2C1->CR1 |= I2C_CR1_PE; //enable the I2C peripheral
 }
 
@@ -442,7 +440,10 @@ void DMA1_Config(void){
 			0x01UL << DMA_CCR_MINC_Pos | //increment memory per DMA write
 			DMA_CCR_PL_1; //priority 0x2
 
-						  //also keep in mind that I2C TXDR and RXDR are 8 bits by default so you don't need to set peripheral/memory byte size
+	//also keep in mind that I2C TXDR and RXDR are 8 bits by default so you don't need to set peripheral/memory byte size
+
+	NVIC_SetIRQ(DMA1_Channel6_IRQn);
+
 
 	//DMA1_Channel7 is I2C1RX
 	DMA1->IFCR = DMA_IFCR_CLEAR;
@@ -458,7 +459,7 @@ void DMA1_Config(void){
 			0x1UL << DMA_CCR_MINC_Pos | //increment memory per DMA read
 			DMA_CCR_PL_1; //priority 0x2
 
-	NVIC_EnableIRQ(DMA1_Channel7_IRQn); //enable data received interrupt for channel 7
+	NVIC_SetIRQ(DMA1_Channel7_IRQn); //enable data received interrupt for channel 7
 }
 
 void TurnSystemOff(void){
