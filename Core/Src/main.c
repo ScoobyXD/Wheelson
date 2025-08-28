@@ -50,6 +50,7 @@ typedef enum {
 } Result;
 
 void USART2_IRQHandler(void); //must be called this name because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
+void USART2_TX(uint8_t word);
 Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len);
 Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len);
 void I2C_MPU9250_BurstRead(void);
@@ -116,15 +117,17 @@ Result I2C_BurstRead(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *
 	// if the MPU9250 samples at 100Hz, so every 10ms, 156bits go out, which should take 1.56ms each to finish, so the bus is free 8.44 ms every 10ms from 100Hz clock.
 
 	WriteBuffer[0] = RegisterAddress;
-	I2C_Write(I2C1, DMA1, DMA1_Channel6, SlaveAddress, 1);
-	ClearBuffer(WriteBuffer, 1);
+	if(I2C_Write(I2C1, DMA1, DMA1_Channel6, SlaveAddress, 1)){
+		ClearBuffer(WriteBuffer, 1);
 
-	ReadBuffer[0] = RegisterAddress;
-	I2C_Read(I2C1, DMA1, DMA1_Channel7, SlaveAddress, len);
-	//have to store the data somewhere
+		ReadBuffer[0] = RegisterAddress;
+		if(I2C_Read(I2C1, DMA1, DMA1_Channel7, SlaveAddress, len)){
 
-	ClearBuffer(ReadBuffer, len);
+			ClearBuffer(ReadBuffer, len);
 
+		}
+
+	}
 }
 
 Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len){
@@ -179,7 +182,7 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
 			0x0UL << I2C_CR2_RELOAD_Pos | //reload 0, so must be controlled by hand
 			I2C_CR2_START;//Generate start condition for I2C communication. //remember, it will just fire whatever was in the buffer memory array
 
-	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ICR_STOPCF | I2C_ISR_TC)) == 0){ //when all NBYTES are sent and ACKed, then hardware generates STOPF flag by interrupt. but also, a STOPF can be from anything including errors
+	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ISR_STOPF | I2C_ISR_TC)) == 0){ //when all NBYTES are sent and ACKed, then hardware generates STOPF flag by interrupt. but also, a STOPF can be from anything including errors
 	}
 
 	I2CX->CR1 &= ~I2C_CR1_TXDMAEN; //all this is hygiene
@@ -205,6 +208,10 @@ void ClearStuckI2CBus(uint8_t *I2CX){
 	//stop peripheral
 	//Puill both SCL and SDA down for 9 clock cycles and restart peripheral
 	//I2CX->CR1 &= ~I2C_CR1_PE;
+}
+
+void USART2_TX(uint8_t word){
+	USART2->TDR = word;
 }
 
 void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by hardware even if function not in main.
@@ -238,6 +245,8 @@ void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by
 		USART2->TDR = UART_Command;
 	}
 }
+
+
 
 void TurretUp(void){
 	GPIOA->BSRR = GPIO_BSRR_BR6; //direction pin 6
@@ -357,10 +366,14 @@ void USART2_Config(void) {
 	//USART2->CR1 &= ~USART_CR1_M1; //I want M[1:0] to be 00: 1 Start bit, 8 data bits, n stop bits (reset value)
 	//USART2->CR1 &= ~USART_CR1_M0; (reset value)
 	//USART2->CR2 &= ~USART_CR2_STOP; //set n stop bits to 1 stop bit (also, keep in mind 0 for all of these are default) im just setting these here for learning reasons (reset value)
-	USART2->CR1 |= USART_CR1_RE; //receiver enable
-	USART2->CR1 |= USART_CR1_TE; //transmitter enable (only need if you are tx back to something, which I might do eventually)
-	USART2->CR1 |= USART_CR1_RXNEIE; //allow RXNE interrupts in USART2
-	USART2->CR1 |= USART_CR1_UE; //enable usart2. This is last because other USART2 stuff needs to configure first
+	USART2->CR1 |= (
+			USART_CR1_RE | //receiver enable
+			USART_CR1_TE | //transmitter enable (only need if you are tx back to something, which I might do eventually)
+			USART_CR1_TXEIE | //allow TXNE interrupts in USART2
+			USART_CR1_RXNEIE | //allow RXNE interrupts in USART2
+			USART_CR1_UE); //enable usart2. This is last because other USART2 stuff needs to configure first
+						   //also keep in mind, bit 28 M1 word length default at 0, 1 start bit, 8 data bits, n stop bits.
+
 	USART2->BRR = 4000000 / 9600; //4mHz/9600 baud. Gives 417hz/1 baud. UART frame is 1 bit every 417 APB1 clock cycles
 								   //we set M[1:0] as 00 so 1 start bit, 8 data bits, and 1 end bit. 10 x 417 is 4170 clock cycles per word
 								   //if 4mHz that mean each uart word should take about 1ms and each bit is 1x10^-4 s. Which is sort of slow?
