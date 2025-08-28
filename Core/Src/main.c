@@ -80,7 +80,7 @@ int main(void)
 	while(1){
 		//MPU9250 sample speed 100Hz, so this burst read will happen 100 times a second. 156 bits x 100 times a second = 15600 bits a second @400kHz means 156ms, each burst read being 156 bits and 1.56ms. From real-sensing to ReadBuffer ~1.56ms+2.9ms(delay) = ~4.46ms for gyroscope, ~1.59+1.9 = 3.49ms for temp
 		//All-in-one read feature, bytes 0-5 Accelerometer, 6-7 Temperature, 8-13 Gyroscope.
-		if((I2C_BurstRead(I2C1, DMA1, DMA1_Channel7, MPU9250_Address, MPU9250_EXT_SENS_DATA_00,14)) == FAIL){
+		if((I2C_BurstRead(I2C1, DMA1, DMA1_Channel7, MPU9250_Address, MPU9250_EXT_SENS_DATA_00,15)) == FAIL){
 			//TXUART the fail to laptop
 		}
 	}
@@ -122,12 +122,15 @@ Result I2C_BurstRead(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *
 
 		ReadBuffer[0] = RegisterAddress;
 		if(I2C_Read(I2C1, DMA1, DMA1_Channel7, SlaveAddress, len)){
-
+			for(volatile uint8_t i = 1; i < len; i++){
+				USART2_TX(ReadBuffer[i]);
+			}
 			ClearBuffer(ReadBuffer, len);
-
+			return COMPLETE;
 		}
 
 	}
+	return FAIL;
 }
 
 Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len){
