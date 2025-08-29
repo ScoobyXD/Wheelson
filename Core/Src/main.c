@@ -73,6 +73,27 @@ int main(void)
 	TurretFire_Config();
 	USART2_Config();
 
+
+	//UART Test
+
+	ReadBuffer[0] = 65;
+	ReadBuffer[1] = 0x42;
+	ReadBuffer[2] = 67;
+	ReadBuffer[3] = 0x44;
+	ReadBuffer[4] = 69;
+	ReadBuffer[5] = 0x46;
+	ReadBuffer[6] = 71;
+
+
+
+	for(volatile uint8_t i = 0; i < 7; i++){
+		if((USART2->ISR &= USART_ISR_TXE)!=0){ //this
+			USART2->TDR = ReadBuffer[i];
+		}
+	}
+	ClearBuffer(ReadBuffer,7);
+
+/*
 	if((MPU9250_Config(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_SMPLRT_DIV)) == FAIL){
 
 	}
@@ -85,7 +106,7 @@ int main(void)
 		}
 	}
 
-
+*/
 
 }
 
@@ -245,6 +266,8 @@ void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by
 		else if(UART_Command == 122){ //ASCII 'z' is 120
 			TurretFireDoNothing();
 		}
+		USART2->RQR = USART_RQR_RXFRQ;
+		USART2->RQR &= ~USART_RQR_RXFRQ;
 		USART2->TDR = UART_Command;
 	}
 }
@@ -384,7 +407,7 @@ void USART2_Config(void) {
 }
 
 void NVIC_SetIRQ(IRQn_Type IRQ){ //doesnt work with negative IRQs (which are error interrupts) so don't use negative ones.
-	NVIC->ISER[IRQ>>5UL] = 1<<(IRQ % 32); //ISER[1] = 1<6UL, there are 8 accessible elements and each element has 32 bits.
+	NVIC->ISER[IRQ>>5UL] = 1<<(IRQ % 32); //ISER[1] = 1<6UL, interrupts are chosen by the bit index, not by the actual bit values, so thats why 1<<6 instead of 110b
 }
 
 void TurretFire_Config(void){
