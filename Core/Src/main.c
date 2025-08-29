@@ -14,6 +14,7 @@
 #define DMA_ISR_TXTC DMA_ISR_TCIF6 //transfer complete interrupt flag
 #define DMA_IFCR_CLEAR 0x0FFFFFFF //clear all DMA IFCR flags
 #define I2C_ICR_CLEAR 0x3F38 //clear all flags in I2C ICR
+#define USART2_CLEAR 0x0F //clear USART2 ICR flags
 /*
  * I2C_ICR_STOPCF | //Clears the stop flag, which means a stop condition has been detected on the bus
  * I2C_ICR_NACKCF | //Clear the NACK flag, which appears when the receiver didn't acknowledge the byte
@@ -75,7 +76,7 @@ int main(void)
 
 
 	//UART Test
-
+/*
 	ReadBuffer[0] = 65;
 	ReadBuffer[1] = 0x42;
 	ReadBuffer[2] = 67;
@@ -84,13 +85,13 @@ int main(void)
 	ReadBuffer[5] = 0x46;
 	ReadBuffer[6] = 71;
 
-
-
+	USART2->CR1 |= USART_CR1_TXEIE;
 	for(volatile uint8_t i = 0; i < 7; i++){
 		if((USART2->ISR &= USART_ISR_TXE)!=0){ //this
 			USART2->TDR = ReadBuffer[i];
 		}
 	}
+	USART2->CR1 &= ~(USART_CR1_TXEIE | USART_CR1_IDLEIE | USART_CR1_TCIE);
 	ClearBuffer(ReadBuffer,7);
 
 /*
@@ -270,6 +271,7 @@ void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by
 		USART2->RQR &= ~USART_RQR_RXFRQ;
 		USART2->TDR = UART_Command;
 	}
+	USART2->ICR = USART2_CLEAR; //hygiene
 }
 
 
@@ -395,7 +397,7 @@ void USART2_Config(void) {
 	USART2->CR1 |= (
 			USART_CR1_RE | //receiver enable
 			USART_CR1_TE | //transmitter enable (only need if you are tx back to something, which I might do eventually)
-			USART_CR1_TXEIE | //allow TXNE interrupts in USART2
+			//USART_CR1_TXEIE | // it means TXIE interrupt will fire when you're no longer actively putting data into TDR. if you turn this on, then CR1's IDLE and TC will automatically turn on and constantly fire interrupts, ISR will constantly have IDLE, TXIE, and TC flags, the ensuing interrupt storm will cause live locks.
 			USART_CR1_RXNEIE | //allow RXNE interrupts in USART2
 			USART_CR1_UE); //enable usart2. This is last because other USART2 stuff needs to configure first
 						   //also keep in mind, bit 28 M1 word length default at 0, 1 start bit, 8 data bits, n stop bits.
