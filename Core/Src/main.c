@@ -14,7 +14,7 @@
 #define DMA_ISR_TXTC DMA_ISR_TCIF6 //transfer complete interrupt flag
 #define DMA_IFCR_CLEAR 0x0FFFFFFF //clear all DMA IFCR flags
 #define I2C_ICR_CLEAR 0x3F38 //clear all flags in I2C ICR
-#define USART2_CLEAR 0x0F //clear USART2 ICR flags
+#define USART2_CLEAR 0x0F //clear USART2 ICR error flags
 /*
  * I2C_ICR_STOPCF | //Clears the stop flag, which means a stop condition has been detected on the bus
  * I2C_ICR_NACKCF | //Clear the NACK flag, which appears when the receiver didn't acknowledge the byte
@@ -65,6 +65,43 @@ volatile uint32_t tmpreg;
 volatile int16_t MPU9250_Data;
 volatile int8_t MPU9250_Buffer[8];
 volatile uint16_t UART_Command;
+void wait(void);
+void usartTest(void);
+
+void usartTest(void){
+	ReadBuffer[0] = 65;
+	ReadBuffer[1] = 0x42;
+	ReadBuffer[2] = 67;
+	ReadBuffer[3] = 0x44;
+	ReadBuffer[4] = 69;
+	ReadBuffer[5] = 0x46;
+	ReadBuffer[6] = 71;
+
+	USART2->TDR = ReadBuffer[0];
+	wait();
+	USART2->TDR = ReadBuffer[1];
+	wait();
+	USART2->TDR = ReadBuffer[2];
+	wait();
+	USART2->TDR = ReadBuffer[3];
+	wait();
+	USART2->TDR = ReadBuffer[4];
+	wait();
+	USART2->TDR = ReadBuffer[5];
+	wait();
+	USART2->TDR = ReadBuffer[6];
+
+
+
+	for(volatile uint8_t i = 0; i < 7; i++){
+			if((USART2->ISR &= USART_ISR_TXE)!=0){
+				USART2->TDR = ReadBuffer[i];
+				wait();
+			}
+		}
+	ClearBuffer(ReadBuffer,7);
+}
+
 
 int main(void)
 {
@@ -74,25 +111,11 @@ int main(void)
 	TurretFire_Config();
 	USART2_Config();
 
+	usartTest();
 
-	//UART Test
-/*
-	ReadBuffer[0] = 65;
-	ReadBuffer[1] = 0x42;
-	ReadBuffer[2] = 67;
-	ReadBuffer[3] = 0x44;
-	ReadBuffer[4] = 69;
-	ReadBuffer[5] = 0x46;
-	ReadBuffer[6] = 71;
 
-	USART2->CR1 |= USART_CR1_TXEIE;
-	for(volatile uint8_t i = 0; i < 7; i++){
-		if((USART2->ISR &= USART_ISR_TXE)!=0){ //this
-			USART2->TDR = ReadBuffer[i];
-		}
-	}
-	USART2->CR1 &= ~(USART_CR1_TXEIE | USART_CR1_IDLEIE | USART_CR1_TCIE);
-	ClearBuffer(ReadBuffer,7);
+
+
 
 /*
 	if((MPU9250_Config(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_SMPLRT_DIV)) == FAIL){
@@ -229,6 +252,10 @@ void ClearBuffer(uint8_t *Buffer, uint8_t len){
 	}
 }
 
+void wait(void){
+	for(volatile uint16_t i=0; i < 512; i++){}
+}
+
 void ClearStuckI2CBus(uint8_t *I2CX){
 	//stop peripheral
 	//Puill both SCL and SDA down for 9 clock cycles and restart peripheral
@@ -272,6 +299,7 @@ void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by
 		USART2->TDR = UART_Command;
 	}
 	USART2->ICR = USART2_CLEAR; //hygiene
+	USART2->CR1 &= ~(USART_CR1_TXEIE | USART_CR1_IDLEIE | USART_CR1_TCIE);
 }
 
 
@@ -339,10 +367,6 @@ void TurretMotors_Config(void){
 	GPIOA->AFR[1] &= ~GPIO_AFRH_AFSEL8_Msk;
 	GPIOA->AFR[1] |= GPIO_AFRH_AFSEL8_0; //set PA8 to AF1 (alternate function 1), which is TIM1_CH1. Also AF[0] are pins 0:7 and AF[1] are pins 8:15
 
-	//GPIOA->OSPEEDR |= GPIO_OSPEEDR_OSPEED8_Msk; //11 very high speed, default is 00, you probably can't tell the difference anyways
-	//GPIOA->OTYPER &= ~GPIO_OTYPER_OT8_Msk; //0x00 for output push/pull
-	//GPIOA->PUPDR &= ~GPIO_PUPDR_PUPD8_Msk; //0x00 neither pull up nor pull down
-
 	TIM1->CCMR1 &= ~TIM_CCMR1_OC1M_Msk;
 	TIM1->CCMR1 |= (6<<TIM_CCMR1_OC1M_Pos); //CCMR1 has configurations for both Ch1 and Ch2  // Set PWM mode 1 on CH1 (mode 1 is in upcounting, CH1 is active as long as TIM CNT < TIM CCR1. Configures 0110 for Ch1
 	//TIM1->CCMR1 |= TIM_CCMR1_OC1PE;            // Enable preload register. (. TIMx_CCR1 preload value is loaded in the active register at each update event)
@@ -394,6 +418,7 @@ void USART2_Config(void) {
 	//USART2->CR1 &= ~USART_CR1_M1; //I want M[1:0] to be 00: 1 Start bit, 8 data bits, n stop bits (reset value)
 	//USART2->CR1 &= ~USART_CR1_M0; (reset value)
 	//USART2->CR2 &= ~USART_CR2_STOP; //set n stop bits to 1 stop bit (also, keep in mind 0 for all of these are default) im just setting these here for learning reasons (reset value)
+
 	USART2->CR1 |= (
 			USART_CR1_RE | //receiver enable
 			USART_CR1_TE | //transmitter enable (only need if you are tx back to something, which I might do eventually)
