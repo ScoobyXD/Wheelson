@@ -45,6 +45,9 @@ void TurretUpDownDoNothing(void);
 void TurretLeftRightDoNothing(void);
 void TurretFireDoNothing(void);
 
+void wait(void);
+void usartTest(void);
+
 typedef enum {
 	FAIL,
 	COMPLETE
@@ -65,42 +68,7 @@ volatile uint32_t tmpreg;
 volatile int16_t MPU9250_Data;
 volatile int8_t MPU9250_Buffer[8];
 volatile uint16_t UART_Command;
-void wait(void);
-void usartTest(void);
 
-void usartTest(void){
-	ReadBuffer[0] = 65;
-	ReadBuffer[1] = 0x42;
-	ReadBuffer[2] = 67;
-	ReadBuffer[3] = 0x44;
-	ReadBuffer[4] = 69;
-	ReadBuffer[5] = 0x46;
-	ReadBuffer[6] = 71;
-
-	USART2->TDR = ReadBuffer[0];
-	wait();
-	USART2->TDR = ReadBuffer[1];
-	wait();
-	USART2->TDR = ReadBuffer[2];
-	wait();
-	USART2->TDR = ReadBuffer[3];
-	wait();
-	USART2->TDR = ReadBuffer[4];
-	wait();
-	USART2->TDR = ReadBuffer[5];
-	wait();
-	USART2->TDR = ReadBuffer[6];
-
-
-
-	for(volatile uint8_t i = 0; i < 7; i++){
-			if((USART2->ISR &= USART_ISR_TXE)!=0){
-				USART2->TDR = ReadBuffer[i];
-				wait();
-			}
-		}
-	ClearBuffer(ReadBuffer,7);
-}
 
 
 int main(void)
@@ -113,15 +81,13 @@ int main(void)
 
 	usartTest();
 
+	if(MPU9250_Config(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_SMPLRT_DIV) == FAIL){
 
+	}
 
 
 
 /*
-	if((MPU9250_Config(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_SMPLRT_DIV)) == FAIL){
-
-	}
-
 	while(1){
 		//MPU9250 sample speed 100Hz, so this burst read will happen 100 times a second. 156 bits x 100 times a second = 15600 bits a second @400kHz means 156ms, each burst read being 156 bits and 1.56ms. From real-sensing to ReadBuffer ~1.56ms+2.9ms(delay) = ~4.46ms for gyroscope, ~1.59+1.9 = 3.49ms for temp
 		//All-in-one read feature, bytes 0-5 Accelerometer, 6-7 Temperature, 8-13 Gyroscope.
@@ -134,11 +100,34 @@ int main(void)
 
 }
 
+
+
+void usartTest(void){
+	ReadBuffer[0] = 65;
+	ReadBuffer[1] = 0x42;
+	ReadBuffer[2] = 67;
+	ReadBuffer[3] = 0x44;
+	ReadBuffer[4] = 69;
+	ReadBuffer[5] = 0x46;
+	ReadBuffer[6] = 71;
+
+
+	for(volatile uint8_t i = 0; i < 7; i++){
+			if((USART2->ISR &= USART_ISR_TXE)!=0){
+				USART2->TDR = ReadBuffer[i];
+				wait();
+			}
+		}
+	ClearBuffer(ReadBuffer,7);
+}
+
 Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress){
 
 	WriteBuffer[0] = RegisterAddress; //DMA requires a memory pointer, length, and a buffer //Also, the buffer only needs the register in peripheral address and the value (2 bytes), the I2C peripheral automatically sends device address from I2C1->CR2
 	WriteBuffer[1] = 0x01; //wake up MPU9250
 	if((I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, 2)) == COMPLETE){ //wake up MPU_9250 //at 100kHz, its 10 us per clock tick so its 9 bits (1 byte and 1 ack bit) so (9 clock tick x 3 bytes) = 270 microseconds + Start (10 us) + Stop (10 us) = 290 us
+
+		Good_USART_Confirmation();
 
 		WriteBuffer[1] = 0x09; // 100Hz sample rate, SAMPLE_RATE= Internal_Sample_Rate / (1 + SMPLRT_DIV)
 		WriteBuffer[2] = 0x01; //increments to CONFIG //set up gyroscope and temp rates in MPU9250 184z bandwidth, 2.9ms delay, 1kHz Fs (internal sampling frequency). For temp sensor 188Hz bandwidth and 1.9ms delay
@@ -148,11 +137,12 @@ Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef 
 		//Beware that you might need to write the XG,YG,ZG offsets to correct the zero-rate error/or bias
 
 		if((I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, 6)) == COMPLETE){
+			Good_USART_Confirmation();
 			ClearBuffer(WriteBuffer,6); //hygiene
 			return COMPLETE;
 		}
 	}
-
+	Bad_USART_Confirmation();
 	ClearBuffer(WriteBuffer,6); //hygiene
 	return FAIL;
 }
@@ -254,6 +244,21 @@ void ClearBuffer(uint8_t *Buffer, uint8_t len){
 
 void wait(void){
 	for(volatile uint16_t i=0; i < 512; i++){}
+}
+
+void Good_USART_Confirmation(void){
+	USART2->TDR = 88;
+	wait();
+	USART2->TDR = 68;
+	wait();
+}
+
+void Bad_USART_Confirmation(void){
+	USART2->TDR = 88;
+	wait();
+	USART2->TDR = 67;
+	wait();
+
 }
 
 void ClearStuckI2CBus(uint8_t *I2CX){
