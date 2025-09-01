@@ -533,10 +533,18 @@ void DMA1_Config(void){
 	NVIC_SetIRQ(DMA1_Channel7_IRQn); //enable data received interrupt for channel 7
 }
 
-void TurnSystemOff(void){
-	I2C1->CR1 &= ~I2C_CR1_PE; //turn I2C1 off, which clears a bunch of flags in ISR
-}
+void MPU9250EXTI_Config(void){
+	SYSCFG->EXTICR[1] |= 0x1UL << SYSCFG_EXTICR1_EXTI0_Pos;
+	GPIOB->MODER |= GPIO_MODER_MODE0_1;
+	GPIOB->OTYPER |=
+	//PB0
+	MODER
+	OTYPER
+	PUPDR
+	IDR?
+	AFR?
 
+}
 
 
 // I did not write the stuff below
