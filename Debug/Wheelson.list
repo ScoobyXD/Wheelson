@@ -27,25 +27,25 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   ALLOC
  11 .ARM.attributes 00000030  00000000  00000000  0000300c  2**0
                   CONTENTS, READONLY
- 12 .debug_info   000049a1  00000000  00000000  0000303c  2**0
+ 12 .debug_info   00004b02  00000000  00000000  0000303c  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 13 .debug_abbrev 00001009  00000000  00000000  000079dd  2**0
+ 13 .debug_abbrev 00001009  00000000  00000000  00007b3e  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 14 .debug_aranges 00000620  00000000  00000000  000089e8  2**3
+ 14 .debug_aranges 00000620  00000000  00000000  00008b48  2**3
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 15 .debug_rnglists 00000484  00000000  00000000  00009008  2**0
+ 15 .debug_rnglists 00000484  00000000  00000000  00009168  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 16 .debug_macro  00024d71  00000000  00000000  0000948c  2**0
+ 16 .debug_macro  00024d71  00000000  00000000  000095ec  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 17 .debug_line   00005aba  00000000  00000000  0002e1fd  2**0
+ 17 .debug_line   00005ae7  00000000  00000000  0002e35d  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 18 .debug_str    000e2495  00000000  00000000  00033cb7  2**0
+ 18 .debug_str    000e249a  00000000  00000000  00033e44  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 19 .comment      00000043  00000000  00000000  0011614c  2**0
+ 19 .comment      00000043  00000000  00000000  001162de  2**0
                   CONTENTS, READONLY
- 20 .debug_frame  00001704  00000000  00000000  00116190  2**2
+ 20 .debug_frame  00001700  00000000  00000000  00116324  2**2
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 21 .debug_line_str 0000005c  00000000  00000000  00117894  2**0
+ 21 .debug_line_str 0000005c  00000000  00000000  00117a24  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
 
 Disassembly of section .text:
@@ -1207,7 +1207,7 @@ void TurretFire_Config(void){
  8000950:	4770      	bx	lr
 
 08000952 <SystemClock_Config>:
-
+}
 
 
 // I did not write the stuff below

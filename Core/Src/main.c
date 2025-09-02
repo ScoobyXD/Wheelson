@@ -534,16 +534,18 @@ void DMA1_Config(void){
 }
 
 void MPU9250EXTI_Config(void){
-	SYSCFG->EXTICR[1] |= 0x1UL << SYSCFG_EXTICR1_EXTI0_Pos;
-	GPIOB->MODER |= GPIO_MODER_MODE0_1;
-	GPIOB->OTYPER |=
-	//PB0
-	MODER
-	OTYPER
-	PUPDR
-	IDR?
-	AFR?
 
+	//PB0
+	RCC->AHB2ENR |= RCC_APB2ENR_SYSCFGEN; //SYSCFG clock enable
+	GPIOB->MODER |= 0x0UL << GPIO_MODER_MODE0_Pos; //Input mode
+	GPIOB->PUPDR |= 0x0UL << GPIO_PUPDR_PUPD0_Pos; //Neither pull up nor pull down
+
+	SYSCFG->EXTICR[1] |= 0x1UL << SYSCFG_EXTICR1_EXTI0_Pos; //syscfg manages the external interrupt line, 0001 on EXTICR[1] enables PB0
+	EXTI->IMR1 |= 0x01UL << EXTI_EMR1_EM0_Pos; //interrrupt unmasked for IM0, so it can flow
+	EXTI->RTSR1 |= 0x01UL << EXTI_RTSR1_RT0_Pos; //Rising trigger enabled (for Event and Interrupt) for input line
+	EXTI->FTSR1 |= 0x00UL << EXTI_FTSR1_FT0_Pos; //disable falling edge
+
+	NVIC_SetIRQ(EXTI0_IRQn); //enable interrupt for
 }
 
 
