@@ -8,12 +8,15 @@
 #define MPU9250_Address 0x68u //ADO 0 device address
 #define MPU9250_PWRMGMT1 0x6Bu //main power and clocking register on MPU9250
 #define MPU9250_EXT_SENS_DATA_00 0x3B
-
+#define MPU9250_SMPLRT_DIV 0x19
+#define MPU9250_Config_Register 0x1A
 
 #define DMA1_I2C1_TX DMA1_Channel6 //from datasheet, I2C1 is in DMA1 channel 6
-#define DMA_ISR_TXTC DMA_ISR_TCIF6 //transfer complete interrupt flag
+#define DMA_ISR_TXTC DMA_ISR_TCIF6 //transfer complete (TC) interrupt flag for channel 6
 #define DMA_IFCR_CLEAR 0x0FFFFFFF //clear all DMA IFCR flags
+
 #define I2C_ICR_CLEAR 0x3F38 //clear all flags in I2C ICR
+
 #define USART2_CLEAR 0x0F //clear USART2 ICR error flags
 /*
  * I2C_ICR_STOPCF | //Clears the stop flag, which means a stop condition has been detected on the bus
@@ -22,19 +25,29 @@
  * I2C_ICR_ARLOCF | //Clear the arbitration flag, which appears when two masters try to control the bus (arbitration is resolving disputes)
  * I2C_ICR_OVRCF) //Overrun/underrun flag clear, which appears when data was lost because software/DMA didn't keep up)
  */
-#define DMA_ISR_TXTC DMA_ISR_TCIF6 // Transfer complete (TC) flag for channel 6
-#define MPU9250_SMPLRT_DIV 0x19
-#define MPU9250_Config_Register 0x1A
 
-
+typedef enum {
+	FAIL,
+	COMPLETE
+} Result;
 
 void SystemClock_Config(void);
 void TurretMotors_Config(void);
 void TurretFire_Config(void);
-void NVIC_SetIRQ(IRQn_Type IRQ);
-void USART2_Config(void);
-void I2C1_Config(void);
 void DMA1_Config(void);
+void I2C1_Config(void);
+void USART2_Config(void);
+Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress);
+
+void NVIC_SetIRQ(IRQn_Type IRQ);
+void USART2_IRQHandler(void); //must be called this name because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
+
+Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len);
+Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len);
+Result I2C_BurstRead(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t len);
+void I2C_MPU9250_BurstRead(void);
+
+void USART2_TX(uint8_t word);
 
 void TurretUp(void);
 void TurretDown(void);
@@ -47,20 +60,10 @@ void TurretFireDoNothing(void);
 
 void wait(void);
 void usartTest(void);
-
-typedef enum {
-	FAIL,
-	COMPLETE
-} Result;
-
-void USART2_IRQHandler(void); //must be called this name because written in interrupt vector table in .asm Startup.startup_stm21l476rgtx.s
-void USART2_TX(uint8_t word);
-Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len);
-Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len);
-void I2C_MPU9250_BurstRead(void);
-Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress);
-Result I2C_BurstRead(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t len);
 void ClearBuffer(uint8_t *Buffer, uint8_t len);
+
+//void Good_USART_Confirmation(void);
+//void Bad_USART_Confirmation(void);
 
 static uint8_t WriteBuffer[32];
 static uint8_t ReadBuffer[32];
@@ -68,8 +71,6 @@ volatile uint32_t tmpreg;
 volatile int16_t MPU9250_Data;
 volatile int8_t MPU9250_Buffer[8];
 volatile uint16_t UART_Command;
-
-
 
 int main(void)
 {
@@ -84,9 +85,6 @@ int main(void)
 	if(MPU9250_Config(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, MPU9250_SMPLRT_DIV) == FAIL){
 
 	}
-
-
-
 /*
 	while(1){
 		//MPU9250 sample speed 100Hz, so this burst read will happen 100 times a second. 156 bits x 100 times a second = 15600 bits a second @400kHz means 156ms, each burst read being 156 bits and 1.56ms. From real-sensing to ReadBuffer ~1.56ms+2.9ms(delay) = ~4.46ms for gyroscope, ~1.59+1.9 = 3.49ms for temp
@@ -99,8 +97,6 @@ int main(void)
 */
 
 }
-
-
 
 void usartTest(void){
 	ReadBuffer[0] = 65;
@@ -127,7 +123,7 @@ Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef 
 	WriteBuffer[1] = 0x01; //wake up MPU9250
 	if((I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, 2)) == COMPLETE){ //wake up MPU_9250 //at 100kHz, its 10 us per clock tick so its 9 bits (1 byte and 1 ack bit) so (9 clock tick x 3 bytes) = 270 microseconds + Start (10 us) + Stop (10 us) = 290 us
 
-		Good_USART_Confirmation();
+		//Good_USART_Confirmation();
 
 		WriteBuffer[1] = 0x09; // 100Hz sample rate, SAMPLE_RATE= Internal_Sample_Rate / (1 + SMPLRT_DIV)
 		WriteBuffer[2] = 0x01; //increments to CONFIG //set up gyroscope and temp rates in MPU9250 184z bandwidth, 2.9ms delay, 1kHz Fs (internal sampling frequency). For temp sensor 188Hz bandwidth and 1.9ms delay
@@ -137,12 +133,12 @@ Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef 
 		//Beware that you might need to write the XG,YG,ZG offsets to correct the zero-rate error/or bias
 
 		if((I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, 6)) == COMPLETE){
-			Good_USART_Confirmation();
+			//Good_USART_Confirmation();
 			ClearBuffer(WriteBuffer,6); //hygiene
 			return COMPLETE;
 		}
 	}
-	Bad_USART_Confirmation();
+	//Bad_USART_Confirmation();
 	ClearBuffer(WriteBuffer,6); //hygiene
 	return FAIL;
 }
@@ -221,6 +217,9 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
 			I2C_CR2_START;//Generate start condition for I2C communication. //remember, it will just fire whatever was in the buffer memory array
 
 	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ISR_STOPF | I2C_ISR_TC)) == 0){ //when all NBYTES are sent and ACKed, then hardware generates STOPF flag by interrupt. but also, a STOPF can be from anything including errors
+		for(volatile uint8_t i=0; i< (len+1)*9;i++){
+		}
+		break;
 	}
 
 	I2CX->CR1 &= ~I2C_CR1_TXDMAEN; //all this is hygiene
@@ -245,7 +244,7 @@ void ClearBuffer(uint8_t *Buffer, uint8_t len){
 void wait(void){
 	for(volatile uint16_t i=0; i < 512; i++){}
 }
-
+/*
 void Good_USART_Confirmation(void){
 	USART2->TDR = 88;
 	wait();
@@ -258,8 +257,7 @@ void Bad_USART_Confirmation(void){
 	wait();
 	USART2->TDR = 67;
 	wait();
-
-}
+}*/
 
 void ClearStuckI2CBus(uint8_t *I2CX){
 	//stop peripheral
@@ -545,7 +543,7 @@ void MPU9250EXTI_Config(void){
 	EXTI->RTSR1 |= 0x01UL << EXTI_RTSR1_RT0_Pos; //Rising trigger enabled (for Event and Interrupt) for input line
 	EXTI->FTSR1 |= 0x00UL << EXTI_FTSR1_FT0_Pos; //disable falling edge
 
-	NVIC_SetIRQ(EXTI0_IRQn); //enable interrupt for
+	NVIC_SetIRQ(EXTI0_IRQn); //enable interrupt for EXTI0
 }
 
 
