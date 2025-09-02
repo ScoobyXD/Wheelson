@@ -26,6 +26,13 @@
  * I2C_ICR_OVRCF) //Overrun/underrun flag clear, which appears when data was lost because software/DMA didn't keep up)
  */
 
+static uint8_t WriteBuffer[32];
+static uint8_t ReadBuffer[32];
+volatile uint32_t tmpreg;
+volatile int16_t MPU9250_Data;
+volatile int8_t MPU9250_Buffer[8];
+volatile uint16_t UART_Command;
+
 typedef enum {
 	FAIL,
 	COMPLETE
@@ -47,8 +54,6 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
 Result I2C_BurstRead(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t RegisterAddress, uint8_t len);
 void I2C_MPU9250_BurstRead(void);
 
-void USART2_TX(uint8_t word);
-
 void TurretUp(void);
 void TurretDown(void);
 void TurretLeft(void);
@@ -61,16 +66,8 @@ void TurretFireDoNothing(void);
 void wait(void);
 void usartTest(void);
 void ClearBuffer(uint8_t *Buffer, uint8_t len);
-
-//void Good_USART_Confirmation(void);
-//void Bad_USART_Confirmation(void);
-
-static uint8_t WriteBuffer[32];
-static uint8_t ReadBuffer[32];
-volatile uint32_t tmpreg;
-volatile int16_t MPU9250_Data;
-volatile int8_t MPU9250_Buffer[8];
-volatile uint16_t UART_Command;
+void Good_USART_Confirmation(void);
+void Bad_USART_Confirmation(void);
 
 int main(void)
 {
@@ -123,7 +120,7 @@ Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef 
 	WriteBuffer[1] = 0x01; //wake up MPU9250
 	if((I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, 2)) == COMPLETE){ //wake up MPU_9250 //at 100kHz, its 10 us per clock tick so its 9 bits (1 byte and 1 ack bit) so (9 clock tick x 3 bytes) = 270 microseconds + Start (10 us) + Stop (10 us) = 290 us
 
-		//Good_USART_Confirmation();
+		Good_USART_Confirmation();
 
 		WriteBuffer[1] = 0x09; // 100Hz sample rate, SAMPLE_RATE= Internal_Sample_Rate / (1 + SMPLRT_DIV)
 		WriteBuffer[2] = 0x01; //increments to CONFIG //set up gyroscope and temp rates in MPU9250 184z bandwidth, 2.9ms delay, 1kHz Fs (internal sampling frequency). For temp sensor 188Hz bandwidth and 1.9ms delay
@@ -133,12 +130,12 @@ Result MPU9250_Config(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef 
 		//Beware that you might need to write the XG,YG,ZG offsets to correct the zero-rate error/or bias
 
 		if((I2C_Write(I2C1, DMA1, DMA1_Channel6, MPU9250_Address, 6)) == COMPLETE){
-			//Good_USART_Confirmation();
+			Good_USART_Confirmation();
 			ClearBuffer(WriteBuffer,6); //hygiene
 			return COMPLETE;
 		}
 	}
-	//Bad_USART_Confirmation();
+	Bad_USART_Confirmation();
 	ClearBuffer(WriteBuffer,6); //hygiene
 	return FAIL;
 }
@@ -154,7 +151,7 @@ Result I2C_BurstRead(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *
 		ReadBuffer[0] = RegisterAddress;
 		if(I2C_Read(I2C1, DMA1, DMA1_Channel7, SlaveAddress, len)){
 			for(volatile uint8_t i = 1; i < len; i++){
-				USART2_TX(ReadBuffer[i]);
+				USART2->TDR = ReadBuffer[i];
 			}
 			ClearBuffer(ReadBuffer, len);
 			return COMPLETE;
@@ -200,14 +197,14 @@ Result I2C_Read(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_C
 
 Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_ChannelX, uint8_t SlaveAddress, uint8_t len){
 
-	I2CX->ICR = I2C_ICR_CLEAR; //clear out potential flags in I2C from the last TX
-	DMAX->IFCR = DMA_IFCR_CLEAR; //clear out potential flags in DMA from the last TX
+	I2C1->ICR = I2C_ICR_CLEAR; //clear out potential flags in I2C from the last TX
+	DMA1->IFCR = DMA_IFCR_CLEAR; //clear out potential flags in DMA from the last TX
 
-	DMA_ChannelX->CNDTR = len; //number of data registers
-	DMA_ChannelX->CCR |= DMA_CCR_EN; //enable the DMA channel
-	I2CX->CR1 |= I2C_CR1_TXDMAEN; //enable DMA in TX
+	DMA1_Channel6->CNDTR = len; //number of data registers
+	DMA1_Channel6->CCR |= DMA_CCR_EN; //enable the DMA channel
+	I2C1->CR1 |= I2C_CR1_TXDMAEN; //enable DMA in TX
 
-	I2CX->CR2 =
+	I2C1->CR2 =
 			0U << I2C_CR2_ADD10_Pos | // So SADD can operate in 7 bit addressing mode
 			(uint32_t) SlaveAddress << 1U |	//SADD[7:1]
 			0UL << I2C_CR2_RD_WRN_Pos | //Write
@@ -216,18 +213,18 @@ Result I2C_Write(I2C_TypeDef *I2CX, DMA_TypeDef *DMAX, DMA_Channel_TypeDef *DMA_
 			0x0UL << I2C_CR2_RELOAD_Pos | //reload 0, so must be controlled by hand
 			I2C_CR2_START;//Generate start condition for I2C communication. //remember, it will just fire whatever was in the buffer memory array
 
-	while((I2CX->ISR & (I2C_ISR_NACKF | I2C_ISR_STOPF | I2C_ISR_TC)) == 0){ //when all NBYTES are sent and ACKed, then hardware generates STOPF flag by interrupt. but also, a STOPF can be from anything including errors
+	while((I2C1->ISR & (I2C_ISR_NACKF | I2C_ISR_STOPF | I2C_ISR_TC)) == 0){ //when all NBYTES are sent and ACKed, then hardware generates STOPF flag by interrupt. but also, a STOPF can be from anything including errors
 		for(volatile uint8_t i=0; i< (len+1)*9;i++){
 		}
 		break;
 	}
 
-	I2CX->CR1 &= ~I2C_CR1_TXDMAEN; //all this is hygiene
-	DMA_ChannelX->CCR &= ~DMA_CCR_EN;
-	I2CX->ICR = I2C_ICR_CLEAR;
-	DMAX->IFCR = DMA_IFCR_CLEAR;
+	I2C1->CR1 &= ~I2C_CR1_TXDMAEN; //all this is hygiene
+	DMA1_Channel6->CCR &= ~DMA_CCR_EN;
+	I2C1->ICR = I2C_ICR_CLEAR;
+	DMA1->IFCR = DMA_IFCR_CLEAR;
 
-	if((I2CX->ISR & I2C_ISR_NACKF) != 0){ //only the NACKF tells us forsure if there was a problem, STOPF only tells you if something is stopped
+	if((I2C1->ISR & I2C_ISR_NACKF) != 0){ //only the NACKF tells us forsure if there was a problem, STOPF only tells you if something is stopped
 		return FAIL;
 	}
 	return COMPLETE;
@@ -244,7 +241,7 @@ void ClearBuffer(uint8_t *Buffer, uint8_t len){
 void wait(void){
 	for(volatile uint16_t i=0; i < 512; i++){}
 }
-/*
+
 void Good_USART_Confirmation(void){
 	USART2->TDR = 88;
 	wait();
@@ -257,16 +254,12 @@ void Bad_USART_Confirmation(void){
 	wait();
 	USART2->TDR = 67;
 	wait();
-}*/
+}
 
 void ClearStuckI2CBus(uint8_t *I2CX){
 	//stop peripheral
 	//Puill both SCL and SDA down for 9 clock cycles and restart peripheral
 	//I2CX->CR1 &= ~I2C_CR1_PE;
-}
-
-void USART2_TX(uint8_t word){
-	USART2->TDR = word;
 }
 
 void USART2_IRQHandler(void){ //this is a hardware interrupt, so will trigger by hardware even if function not in main.
